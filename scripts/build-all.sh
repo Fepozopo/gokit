@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TAG=v0.6.0
+TAG=v0.0.0
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"

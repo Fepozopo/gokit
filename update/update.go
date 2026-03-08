@@ -158,10 +158,10 @@ func detectLatestRelease(repo string) (*Release, bool, error) {
 	return r, true, nil
 }
 
-func CheckForUpdates(repo string) (bool, *Release, error) {
+func CheckForUpdates(version, repo string) (bool, *Release, error) {
 	// Use the GitHub API detector which is tolerant of tag naming.
 	latest, found, err := detectLatestRelease(repo)
-	slog.Info("current version", "version", Version)
+	slog.Info("current version", "version", version)
 	if err != nil {
 		return false, nil, fmt.Errorf("update check failed: %w", err)
 	}
@@ -173,10 +173,10 @@ func CheckForUpdates(repo string) (bool, *Release, error) {
 		slog.Info("latest version", "version", latest.Version)
 	}
 
-	currentVer, parseErr := semver.Parse(Version)
+	currentVer, parseErr := semver.Parse(version)
 	if parseErr != nil {
 		// If the built Version isn't valid semver, continue but warn.
-		slog.Warn("could not parse current version", "version", Version, "error", parseErr)
+		slog.Warn("could not parse current version", "version", version, "error", parseErr)
 	}
 
 	// No release found or nil result -> nothing to do.
@@ -206,7 +206,7 @@ func CheckForUpdates(repo string) (bool, *Release, error) {
 	return true, latest, nil
 }
 
-func Update(repo string, latest *Release, verify bool) error {
+func Update(repo string, latest *Release, verify bool, trustedPubKeysHex []string) error {
 	slog.Info("verifying release checksums signature")
 	// Download checksums and signature
 	ckResp, err := http.Get(latest.ChecksumsURL)
@@ -229,7 +229,7 @@ func Update(repo string, latest *Release, verify bool) error {
 	}
 
 	// Verify signature using embedded trusted public key(s).
-	if err := verifyChecksumsSignature(ckBody, string(sigBody), TrustedPubKeysHex); err != nil {
+	if err := verifyChecksumsSignature(ckBody, string(sigBody), trustedPubKeysHex); err != nil {
 		return fmt.Errorf("checksums signature verification failed: %w", err)
 	}
 
