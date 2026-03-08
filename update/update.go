@@ -160,12 +160,12 @@ func detectLatestRelease(repo string) (*Release, bool, error) {
 	return r, true, nil
 }
 
-func CheckForUpdates(repo string) error {
+func CheckForUpdates(repo string) (bool, *Release, error) {
 	// Use the GitHub API detector which is tolerant of tag naming.
 	latest, found, err := detectLatestRelease(repo)
 	slog.Info("current version", "version", Version)
 	if err != nil {
-		return fmt.Errorf("update check failed: %w", err)
+		return false, nil, fmt.Errorf("update check failed: %w", err)
 	}
 	if latest == nil {
 		slog.Info("no release information available from GitHub")
@@ -183,41 +183,32 @@ func CheckForUpdates(repo string) error {
 
 	// No release found or nil result -> nothing to do.
 	if !found || latest == nil {
-		slog.Info("no releases found", "repo", repo)
-		return nil
+		return false, nil, fmt.Errorf("no releases found for repo %q", repo)
 	}
 
 	// If same version -> up-to-date.
 	if latest.Version.Equals(currentVer) {
 		slog.Info("already running latest version", "version", currentVer)
-		return nil
+		return false, latest, nil
 	}
 
 	// If we don't have an asset URL, cannot update automatically.
 	if latest.AssetURL == "" {
-		slog.Info("new version available but no downloadable asset", "version", latest.Version)
-		slog.Info("please visit the project releases page to download the new version")
-		return nil
+		return true, latest, fmt.Errorf("new version %s available but no downloadable asset", latest.Version)
 	}
 
-	// We require signed checksums to be present for the release. If missing,
-	// refuse to update (enforces signed releases).
+	// Signed checksums are not present for the release.
 	if latest.ChecksumsURL == "" || latest.ChecksumsSigURL == "" {
-		slog.Warn("new version available but missing checksums or signature; update aborted", "version", latest.Version)
-		return nil
+		slog.Warn("new version available but missing checksums or signature", "version", latest.Version)
+		return true, latest, fmt.Errorf("new version available but missing checksums or signature")
 	}
 
 	// Prompt the user to confirm updating.
-	answer, perr := PromptLine(fmt.Sprintf("A new version (%s) is available. Update now? (y/N): ", latest.Version))
-	if perr != nil {
-		return fmt.Errorf("failed reading input: %w", perr)
-	}
-	answer = strings.TrimSpace(strings.ToLower(answer))
-	if answer != "y" && answer != "yes" {
-		slog.Info("update cancelled by user")
-		return nil
-	}
+	slog.Info("A new version (%s) is available.", latest.Version)
+	return true, latest, nil
+}
 
+func Update(repo string, latest *Release, verify bool) error {
 	slog.Info("verifying release checksums signature")
 	// Download checksums and signature
 	ckResp, err := http.Get(latest.ChecksumsURL)
@@ -267,9 +258,16 @@ func CheckForUpdates(repo string) error {
 		return fmt.Errorf("could not locate executable: %w", err)
 	}
 
-	// Download, verify checksum, and atomically replace the executable.
-	if err := downloadAndVerifyAndReplace(latest.AssetURL, expected, exe); err != nil {
-		return fmt.Errorf("update failed: %w", err)
+	if verify {
+		// Download, verify checksum, and atomically replace the executable.
+		if err := downloadAndVerifyAndReplace(latest.AssetURL, expected, exe); err != nil {
+			return fmt.Errorf("update failed: %w", err)
+		}
+	} else {
+		// Just download and replace without verifying checksum (not recommended).
+		if err := downloadAndAtomicReplace(latest.AssetURL, exe); err != nil {
+			return fmt.Errorf("update failed: %w", err)
+		}
 	}
 
 	// Attempt to restart the process by replacing the current process image.
@@ -287,6 +285,7 @@ func CheckForUpdates(repo string) error {
 			return nil
 		}
 		// Successfully started the new process; exit the current one.
+		slog.Info("updated to version %s successfully", latest.Version)
 		os.Exit(0)
 	}
 
