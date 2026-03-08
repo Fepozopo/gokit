@@ -1,0 +1,389 @@
+package update
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"runtime"
+	"sort"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/Fepozopo/gokit/semver"
+)
+
+// Release is a minimal release descriptor used by detectLatestRelease.
+type Release struct {
+	Version   semver.Version
+	AssetURL  string
+	AssetName string
+	// ChecksumsURL points to the checksums.txt asset for the release (containing
+	// sha256 hashes for release assets). ChecksumsSigURL is the detached
+	// ed25519 signature (hex) for the checksums file.
+	ChecksumsURL    string
+	ChecksumsSigURL string
+}
+
+// detectLatestRelease queries the GitHub Releases API and returns the best-match
+// release. It prefers published, non-prerelease releases with semver-compliant
+// tag names and returns the highest semver it can find. If no suitable release
+// is found it returns (nil, false, nil).
+func detectLatestRelease(repo string) (*Release, bool, error) {
+	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/releases", repo)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(apiURL)
+	if err != nil {
+		return nil, false, fmt.Errorf("github API request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, false, fmt.Errorf("github API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed reading github response: %w", err)
+	}
+
+	// Minimal struct to parse releases JSON
+	var releases []struct {
+		TagName    string `json:"tag_name"`
+		Name       string `json:"name"`
+		Draft      bool   `json:"draft"`
+		Prerelease bool   `json:"prerelease"`
+		Assets     []struct {
+			Name               string `json:"name"`
+			BrowserDownloadURL string `json:"browser_download_url"`
+		} `json:"assets"`
+	}
+	if err := json.Unmarshal(body, &releases); err != nil {
+		return nil, false, fmt.Errorf("failed to decode github releases: %w", err)
+	}
+
+	type candidate struct {
+		ver          semver.Version
+		tag          string
+		assetURL     string
+		name         string
+		checksumsURL string
+		checksumsSig string
+	}
+
+	var candidates []candidate
+
+	// regex to find semver substring like v1.2.3 or 1.2.3 inside tag name
+	semverRe := regexp.MustCompile(`v?\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?`)
+
+	for _, r := range releases {
+		if r.Draft || r.Prerelease {
+			continue
+		}
+		tag := r.TagName
+		match := semverRe.FindString(tag)
+		if match == "" {
+			// try the release name as a fallback
+			match = semverRe.FindString(r.Name)
+			if match == "" {
+				continue
+			}
+		}
+		// normalize to start with v if missing (semver.Parse accepts both but keep consistent)
+		verStr := match
+		// semver.Parse expects no leading 'v' for github.com/blang/semver, but it supports v-prefixed too.
+		v, perr := semver.Parse(verStr)
+		if perr != nil {
+			// try stripping leading 'v'
+			verStr = strings.TrimPrefix(match, "v")
+			v, perr = semver.Parse(verStr)
+			if perr != nil {
+				continue
+			}
+		}
+		assetURL := ""
+		assetName := ""
+		checksumsURL := ""
+		checksumsSig := ""
+		// find assets: prefer binary-like asset for download, and capture
+		// checksums and signature assets if present.
+		for _, a := range r.Assets {
+			nameLower := strings.ToLower(a.Name)
+			if nameLower == "checksums.txt" {
+				checksumsURL = a.BrowserDownloadURL
+				continue
+			}
+			if nameLower == "checksums.txt.sig" || nameLower == "checksums.sig" || nameLower == "checksums.txt.asc" || nameLower == "checksums.asc" {
+				checksumsSig = a.BrowserDownloadURL
+				continue
+			}
+			if strings.Contains(nameLower, "darwin") || strings.Contains(nameLower, "linux") || strings.Contains(nameLower, "windows") || strings.Contains(nameLower, "amd64") || strings.Contains(nameLower, "arm64") {
+				assetURL = a.BrowserDownloadURL
+				assetName = a.Name
+				break
+			}
+			// fallback to first asset if nothing matches
+			if assetURL == "" {
+				assetURL = a.BrowserDownloadURL
+				assetName = a.Name
+			}
+		}
+		candidates = append(candidates, candidate{ver: v, tag: tag, assetURL: assetURL, name: assetName, checksumsURL: checksumsURL, checksumsSig: checksumsSig})
+	}
+
+	if len(candidates) == 0 {
+		return nil, false, nil
+	}
+
+	// pick the highest semver
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].ver.GT(candidates[j].ver)
+	})
+	best := candidates[0]
+
+	// Build a selfupdate.Release-like struct (only include fields present in the actual type)
+	r := &Release{
+		Version:         best.ver,
+		AssetURL:        best.assetURL,
+		AssetName:       best.name,
+		ChecksumsURL:    best.checksumsURL,
+		ChecksumsSigURL: best.checksumsSig,
+	}
+	return r, true, nil
+}
+
+func CheckForUpdates(repo string) error {
+	// Use the GitHub API detector which is tolerant of tag naming.
+	latest, found, err := detectLatestRelease(repo)
+	slog.Info("current version", "version", Version)
+	if err != nil {
+		return fmt.Errorf("update check failed: %w", err)
+	}
+	if latest == nil {
+		slog.Info("no release information available from GitHub")
+	}
+
+	if latest != nil {
+		slog.Info("latest version", "version", latest.Version)
+	}
+
+	currentVer, parseErr := semver.Parse(Version)
+	if parseErr != nil {
+		// If the built Version isn't valid semver, continue but warn.
+		slog.Warn("could not parse current version", "version", Version, "error", parseErr)
+	}
+
+	// No release found or nil result -> nothing to do.
+	if !found || latest == nil {
+		slog.Info("no releases found", "repo", repo)
+		return nil
+	}
+
+	// If same version -> up-to-date.
+	if latest.Version.Equals(currentVer) {
+		slog.Info("already running latest version", "version", currentVer)
+		return nil
+	}
+
+	// If we don't have an asset URL, cannot update automatically.
+	if latest.AssetURL == "" {
+		slog.Info("new version available but no downloadable asset", "version", latest.Version)
+		slog.Info("please visit the project releases page to download the new version")
+		return nil
+	}
+
+	// We require signed checksums to be present for the release. If missing,
+	// refuse to update (enforces signed releases).
+	if latest.ChecksumsURL == "" || latest.ChecksumsSigURL == "" {
+		slog.Warn("new version available but missing checksums or signature; update aborted", "version", latest.Version)
+		return nil
+	}
+
+	// Prompt the user to confirm updating.
+	answer, perr := PromptLine(fmt.Sprintf("A new version (%s) is available. Update now? (y/N): ", latest.Version))
+	if perr != nil {
+		return fmt.Errorf("failed reading input: %w", perr)
+	}
+	answer = strings.TrimSpace(strings.ToLower(answer))
+	if answer != "y" && answer != "yes" {
+		slog.Info("update cancelled by user")
+		return nil
+	}
+
+	slog.Info("verifying release checksums signature")
+	// Download checksums and signature
+	ckResp, err := http.Get(latest.ChecksumsURL)
+	if err != nil {
+		return fmt.Errorf("failed downloading checksums: %w", err)
+	}
+	ckBody, err := io.ReadAll(ckResp.Body)
+	_ = ckResp.Body.Close()
+	if err != nil {
+		return fmt.Errorf("failed reading checksums: %w", err)
+	}
+	sigResp, err := http.Get(latest.ChecksumsSigURL)
+	if err != nil {
+		return fmt.Errorf("failed downloading checksums signature: %w", err)
+	}
+	sigBody, err := io.ReadAll(sigResp.Body)
+	_ = sigResp.Body.Close()
+	if err != nil {
+		return fmt.Errorf("failed reading checksums signature: %w", err)
+	}
+
+	// Verify signature using embedded trusted public key(s).
+	if err := verifyChecksumsSignature(ckBody, string(sigBody), TrustedPubKeysHex); err != nil {
+		return fmt.Errorf("checksums signature verification failed: %w", err)
+	}
+
+	// Parse checksums and find expected hash for the chosen asset.
+	checks := parseChecksums(ckBody)
+	expected, ok := checks[latest.AssetName]
+	if !ok || expected == "" {
+		// Try fallback: use basename of asset URL
+		if latest.AssetURL != "" {
+			base := filepath.Base(latest.AssetURL)
+			if v, ok2 := checks[base]; ok2 {
+				expected = v
+				ok = true
+			}
+		}
+	}
+	if !ok || expected == "" {
+		return fmt.Errorf("no checksum entry found for asset %q in checksums.txt", latest.AssetName)
+	}
+
+	slog.Info("checksums signature valid; downloading and verifying artifact")
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("could not locate executable: %w", err)
+	}
+
+	// Download, verify checksum, and atomically replace the executable.
+	if err := downloadAndVerifyAndReplace(latest.AssetURL, expected, exe); err != nil {
+		return fmt.Errorf("update failed: %w", err)
+	}
+
+	// Attempt to restart the process by replacing the current process image.
+	argv := append([]string{exe}, os.Args[1:]...)
+	if err := syscall.Exec(exe, argv, os.Environ()); err != nil {
+		// Exec only returns on error. Try a fallback of starting the new binary as a child process.
+		cmd := exec.Command(exe, os.Args[1:]...)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if startErr := cmd.Start(); startErr != nil {
+			// If fallback also fails, report success but instruct user to restart manually.
+			slog.Info("updated to new version but failed to restart automatically", "version", latest.Version, "execErr", err, "startErr", startErr)
+			slog.Info("please restart the application manually")
+			return nil
+		}
+		// Successfully started the new process; exit the current one.
+		os.Exit(0)
+	}
+
+	// If Exec succeeds, this process is replaced and the following lines won't run.
+	return nil
+}
+
+// downloadAndAtomicReplace downloads the assetURL to a temp file in the same directory
+// as destPath and then atomically renames it over destPath. It preserves file mode when
+// possible and falls back to file copy on cross-device rename failures.
+func downloadAndAtomicReplace(assetURL, destPath string) error {
+	resp, err := http.Get(assetURL)
+	if err != nil {
+		return fmt.Errorf("download failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("download returned status %d: %s", resp.StatusCode, string(b))
+	}
+
+	dir := filepath.Dir(destPath)
+	tmpFile, err := os.CreateTemp(dir, ".timp-upd-*")
+	if err != nil {
+		return fmt.Errorf("create temp: %w", err)
+	}
+	tmpName := tmpFile.Name()
+	// ensure cleanup on failure
+	defer func() {
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpName)
+	}()
+
+	// Stream download into temp file
+	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+		return fmt.Errorf("write temp: %w", err)
+	}
+
+	if err := tmpFile.Sync(); err != nil {
+		return fmt.Errorf("sync temp: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("close temp: %w", err)
+	}
+
+	// Preserve mode if destination exists; otherwise ensure executable bit for user
+	if fi, err := os.Stat(destPath); err == nil {
+		_ = os.Chmod(tmpName, fi.Mode())
+	} else {
+		_ = os.Chmod(tmpName, 0755)
+	}
+
+	// Attempt atomic rename
+	if err := os.Rename(tmpName, destPath); err != nil {
+		// cross-device fallback
+		if errors.Is(err, syscall.EXDEV) {
+			if cerr := copyFile(tmpName, destPath); cerr != nil {
+				return fmt.Errorf("copy fallback failed: %w (rename err: %v)", cerr, err)
+			}
+			_ = os.Remove(tmpName)
+		} else if runtime.GOOS == "windows" {
+			// Best-effort: remove dest then rename (not perfectly atomic on Windows)
+			_ = os.Remove(destPath)
+			if rerr := os.Rename(tmpName, destPath); rerr != nil {
+				return fmt.Errorf("rename after remove failed: %w", rerr)
+			}
+		} else {
+			return fmt.Errorf("rename failed: %w", err)
+		}
+	}
+
+	// fsync containing directory (best-effort)
+	if dirf, err := os.Open(dir); err == nil {
+		_ = dirf.Sync()
+		_ = dirf.Close()
+	}
+
+	return nil
+}
+
+func copyFile(src, dst string) error {
+	sf, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer sf.Close()
+	fi, _ := os.Stat(src)
+	df, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fi.Mode())
+	if err != nil {
+		return err
+	}
+	defer df.Close()
+	if _, err := io.Copy(df, sf); err != nil {
+		return err
+	}
+	if err := df.Sync(); err != nil {
+		return err
+	}
+	return nil
+}
