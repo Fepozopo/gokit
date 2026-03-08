@@ -88,10 +88,11 @@ func downloadToTemp(url, dir, prefix string) (string, error) {
 	return tmpf.Name(), nil
 }
 
-// downloadAndVerifyAndReplace downloads assetURL, verifies its SHA256 matches
-// expectedHex, and atomically replaces destPath with the downloaded file.
-// It uses the same atomic replacement strategy as the existing updater.
-func downloadAndVerifyAndReplace(assetURL, expectedHex, destPath string) error {
+// downloadAndReplace downloads assetURL to a temporary file in the same directory
+// as destPath and then atomically replaces destPath with the downloaded file.
+// If verify is true, it computes the SHA256 of the download and compares it to
+// expectedHex before performing the replacement.
+func downloadAndReplace(assetURL, destPath string, verify bool, expectedHex string) error {
 	resp, err := http.Get(assetURL)
 	if err != nil {
 		return fmt.Errorf("download failed: %w", err)
@@ -114,10 +115,24 @@ func downloadAndVerifyAndReplace(assetURL, expectedHex, destPath string) error {
 		_ = os.Remove(tmpName)
 	}()
 
-	hasher := sha256.New()
-	if _, err := io.Copy(io.MultiWriter(tmpFile, hasher), resp.Body); err != nil {
-		return fmt.Errorf("write temp: %w", err)
+	// Stream download into temp file; optionally compute hash while streaming.
+	var hasher io.Writer
+	var shaSum []byte
+	if verify {
+		h := sha256.New()
+		hasher = h
+		// copy into both temp file and hasher
+		if _, err := io.Copy(io.MultiWriter(tmpFile, hasher), resp.Body); err != nil {
+			return fmt.Errorf("write temp: %w", err)
+		}
+		shaSum = h.Sum(nil)
+	} else {
+		// just write to temp file
+		if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+			return fmt.Errorf("write temp: %w", err)
+		}
 	}
+
 	if err := tmpFile.Sync(); err != nil {
 		return fmt.Errorf("sync temp: %w", err)
 	}
@@ -125,9 +140,12 @@ func downloadAndVerifyAndReplace(assetURL, expectedHex, destPath string) error {
 		return fmt.Errorf("close temp: %w", err)
 	}
 
-	got := fmt.Sprintf("%x", hasher.Sum(nil))
-	if strings.ToLower(got) != strings.ToLower(strings.TrimSpace(expectedHex)) {
-		return fmt.Errorf("checksum mismatch: expected %s got %s", expectedHex, got)
+	// If verification requested, compare computed hash with expected.
+	if verify {
+		got := fmt.Sprintf("%x", shaSum)
+		if strings.ToLower(got) != strings.ToLower(strings.TrimSpace(expectedHex)) {
+			return fmt.Errorf("checksum mismatch: expected %s got %s", expectedHex, got)
+		}
 	}
 
 	// Preserve mode if destination exists; otherwise ensure executable bit for user

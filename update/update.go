@@ -2,7 +2,6 @@ package update
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 	"syscall"
@@ -260,12 +258,13 @@ func Update(repo string, latest *Release, verify bool) error {
 
 	if verify {
 		// Download, verify checksum, and atomically replace the executable.
-		if err := downloadAndVerifyAndReplace(latest.AssetURL, expected, exe); err != nil {
+		if err := downloadAndReplace(latest.AssetURL, exe, true, expected); err != nil {
 			return fmt.Errorf("update failed: %w", err)
 		}
 	} else {
 		// Just download and replace without verifying checksum (not recommended).
-		if err := downloadAndAtomicReplace(latest.AssetURL, exe); err != nil {
+		// Pass an empty expected hash since verification is disabled.
+		if err := downloadAndReplace(latest.AssetURL, exe, false, ""); err != nil {
 			return fmt.Errorf("update failed: %w", err)
 		}
 	}
@@ -290,79 +289,6 @@ func Update(repo string, latest *Release, verify bool) error {
 	}
 
 	// If Exec succeeds, this process is replaced and the following lines won't run.
-	return nil
-}
-
-// downloadAndAtomicReplace downloads the assetURL to a temp file in the same directory
-// as destPath and then atomically renames it over destPath. It preserves file mode when
-// possible and falls back to file copy on cross-device rename failures.
-func downloadAndAtomicReplace(assetURL, destPath string) error {
-	resp, err := http.Get(assetURL)
-	if err != nil {
-		return fmt.Errorf("download failed: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("download returned status %d: %s", resp.StatusCode, string(b))
-	}
-
-	dir := filepath.Dir(destPath)
-	tmpFile, err := os.CreateTemp(dir, ".tmp-upd-*")
-	if err != nil {
-		return fmt.Errorf("create temp: %w", err)
-	}
-	tmpName := tmpFile.Name()
-	// ensure cleanup on failure
-	defer func() {
-		_ = tmpFile.Close()
-		_ = os.Remove(tmpName)
-	}()
-
-	// Stream download into temp file
-	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
-		return fmt.Errorf("write temp: %w", err)
-	}
-
-	if err := tmpFile.Sync(); err != nil {
-		return fmt.Errorf("sync temp: %w", err)
-	}
-	if err := tmpFile.Close(); err != nil {
-		return fmt.Errorf("close temp: %w", err)
-	}
-
-	// Preserve mode if destination exists; otherwise ensure executable bit for user
-	if fi, err := os.Stat(destPath); err == nil {
-		_ = os.Chmod(tmpName, fi.Mode())
-	} else {
-		_ = os.Chmod(tmpName, 0755)
-	}
-
-	// Attempt atomic rename
-	if err := os.Rename(tmpName, destPath); err != nil {
-		// cross-device fallback
-		if errors.Is(err, syscall.EXDEV) {
-			if cerr := copyFile(tmpName, destPath); cerr != nil {
-				return fmt.Errorf("copy fallback failed: %w (rename err: %v)", cerr, err)
-			}
-			_ = os.Remove(tmpName)
-		} else if runtime.GOOS == "windows" {
-			// Best-effort: remove dest then rename (not perfectly atomic on Windows)
-			_ = os.Remove(destPath)
-			if rerr := os.Rename(tmpName, destPath); rerr != nil {
-				return fmt.Errorf("rename after remove failed: %w", rerr)
-			}
-		} else {
-			return fmt.Errorf("rename failed: %w", err)
-		}
-	}
-
-	// fsync containing directory (best-effort)
-	if dirf, err := os.Open(dir); err == nil {
-		_ = dirf.Sync()
-		_ = dirf.Close()
-	}
-
 	return nil
 }
 
