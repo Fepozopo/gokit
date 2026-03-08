@@ -182,6 +182,30 @@ func downloadAndReplace(assetURL, destPath string, verify bool, expectedHex stri
 	return nil
 }
 
+// copyFile copies a file from src to dst, preserving permissions.
+// Used as a fallback when atomic rename is not possible (e.g. cross-device).
+// Returns an error on failure.
+func copyFile(src, dst string) error {
+	sf, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer sf.Close()
+	fi, _ := os.Stat(src)
+	df, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fi.Mode())
+	if err != nil {
+		return err
+	}
+	defer df.Close()
+	if _, err := io.Copy(df, sf); err != nil {
+		return err
+	}
+	if err := df.Sync(); err != nil {
+		return err
+	}
+	return nil
+}
+
 // These small wrappers avoid importing syscall/runtime in this file so tests
 // can more easily stub if needed.
 func errorsIs(err error, s string) bool {

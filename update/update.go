@@ -291,24 +291,3 @@ func Update(repo string, latest *Release, verify bool) error {
 	// If Exec succeeds, this process is replaced and the following lines won't run.
 	return nil
 }
-
-func copyFile(src, dst string) error {
-	sf, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer sf.Close()
-	fi, _ := os.Stat(src)
-	df, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fi.Mode())
-	if err != nil {
-		return err
-	}
-	defer df.Close()
-	if _, err := io.Copy(df, sf); err != nil {
-		return err
-	}
-	if err := df.Sync(); err != nil {
-		return err
-	}
-	return nil
-}
