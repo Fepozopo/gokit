@@ -103,7 +103,7 @@ func downloadAndVerifyAndReplace(assetURL, expectedHex, destPath string) error {
 	}
 
 	dir := filepath.Dir(destPath)
-	tmpFile, err := os.CreateTemp(dir, ".timp-upd-*")
+	tmpFile, err := os.CreateTemp(dir, ".tmp-upd-*")
 	if err != nil {
 		return fmt.Errorf("create temp: %w", err)
 	}
