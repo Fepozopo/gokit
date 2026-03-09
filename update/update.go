@@ -202,7 +202,7 @@ func CheckForUpdates(currentVersion, repo string) (bool, *Release, error) {
 	}
 
 	// Prompt the user to confirm updating.
-	slog.Info("A new version (%s) is available.", latest.Version)
+	slog.Info("A new version is available", "version", latest.Version)
 	return true, latest, nil
 }
 
@@ -284,7 +284,7 @@ func Update(repo string, latest *Release, verify bool, trustedPubKeysHex []strin
 			return nil
 		}
 		// Successfully started the new process; exit the current one.
-		slog.Info("updated to version %s successfully", latest.Version)
+		slog.Info("updated to version", "version", latest.Version)
 		os.Exit(0)
 	}
 
