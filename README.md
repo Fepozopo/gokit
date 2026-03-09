@@ -53,7 +53,13 @@ import (
 )
 
 func main() {
-    available, latest, err := update.CheckForUpdates("0.1.0", "owner/repo")
+		currentVersion = "0.1.0" // replace with actual version
+		repo = "owner/repo" // replace with actual repo
+
+		// example hex public key(s) for signature verification, replace with actual trusted keys
+    var trustedPubKeysHex = []string{"a3f1c2d4e5b6a7980f1e2d3c4b5a6978c9d0e1f2a3b4c5d6e7f8091a2b3c4d5e"}
+
+    available, latest, err := update.CheckForUpdates(repo, currentVersion)
     if err != nil {
         log.Fatal(err)
     }
@@ -61,8 +67,6 @@ func main() {
         log.Println("already up-to-date")
         return
     }
-    // example hex public key(s) for signature verification
-    var trustedPubKeysHex = []string{"a3f1c2d4e5b6a7980f1e2d3c4b5a6978c9d0e1f2a3b4c5d6e7f8091a2b3c4d5e"}
     if err := update.Update("owner/repo", latest, true, trustedPubKeysHex); err != nil {
         log.Fatalf("update failed: %v", err)
     }

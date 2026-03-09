@@ -158,10 +158,10 @@ func detectLatestRelease(repo string) (*Release, bool, error) {
 	return r, true, nil
 }
 
-func CheckForUpdates(version, repo string) (bool, *Release, error) {
+func CheckForUpdates(currentVersion, repo string) (bool, *Release, error) {
 	// Use the GitHub API detector which is tolerant of tag naming.
 	latest, found, err := detectLatestRelease(repo)
-	slog.Info("current version", "version", version)
+	slog.Info("current version", "version", currentVersion)
 	if err != nil {
 		return false, nil, fmt.Errorf("update check failed: %w", err)
 	}
@@ -173,10 +173,10 @@ func CheckForUpdates(version, repo string) (bool, *Release, error) {
 		slog.Info("latest version", "version", latest.Version)
 	}
 
-	currentVer, parseErr := semver.Parse(version)
+	currentSemVer, parseErr := semver.Parse(currentVersion)
 	if parseErr != nil {
 		// If the built Version isn't valid semver, continue but warn.
-		slog.Warn("could not parse current version", "version", version, "error", parseErr)
+		slog.Warn("could not parse current version", "version", currentVersion, "error", parseErr)
 	}
 
 	// No release found or nil result -> nothing to do.
@@ -185,8 +185,8 @@ func CheckForUpdates(version, repo string) (bool, *Release, error) {
 	}
 
 	// If same version -> up-to-date.
-	if latest.Version.Equals(currentVer) {
-		slog.Info("already running latest version", "version", currentVer)
+	if latest.Version.Equals(currentSemVer) {
+		slog.Info("already running latest version", "version", currentSemVer)
 		return false, latest, nil
 	}
 
