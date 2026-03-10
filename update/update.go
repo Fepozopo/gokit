@@ -207,50 +207,66 @@ func CheckForUpdates(currentVersion, repo string) (bool, *Release, error) {
 }
 
 func Update(repo string, latest *Release, verify bool, trustedPubKeysHex []string) error {
-	slog.Info("verifying release checksums signature")
-	// Download checksums and signature
-	ckResp, err := http.Get(latest.ChecksumsURL)
-	if err != nil {
-		return fmt.Errorf("failed downloading checksums: %w", err)
-	}
-	ckBody, err := io.ReadAll(ckResp.Body)
-	_ = ckResp.Body.Close()
-	if err != nil {
-		return fmt.Errorf("failed reading checksums: %w", err)
-	}
-	sigResp, err := http.Get(latest.ChecksumsSigURL)
-	if err != nil {
-		return fmt.Errorf("failed downloading checksums signature: %w", err)
-	}
-	sigBody, err := io.ReadAll(sigResp.Body)
-	_ = sigResp.Body.Close()
-	if err != nil {
-		return fmt.Errorf("failed reading checksums signature: %w", err)
-	}
+	var expected string
 
-	// Verify signature using embedded trusted public key(s).
-	if err := verifyChecksumsSignature(ckBody, string(sigBody), trustedPubKeysHex); err != nil {
-		return fmt.Errorf("checksums signature verification failed: %w", err)
-	}
+	if verify {
+		slog.Info("verifying release checksums signature")
 
-	// Parse checksums and find expected hash for the chosen asset.
-	checks := parseChecksums(ckBody)
-	expected, ok := checks[latest.AssetName]
-	if !ok || expected == "" {
-		// Try fallback: use basename of asset URL
-		if latest.AssetURL != "" {
-			base := filepath.Base(latest.AssetURL)
-			if v, ok2 := checks[base]; ok2 {
-				expected = v
-				ok = true
+		// Ensure checksums URLs are present
+		if latest.ChecksumsURL == "" || latest.ChecksumsSigURL == "" {
+			return fmt.Errorf("missing checksums or signature URL for release %s", latest.Version)
+		}
+
+		// Download checksums and signature
+		ckResp, err := http.Get(latest.ChecksumsURL)
+		if err != nil {
+			return fmt.Errorf("failed downloading checksums: %w", err)
+		}
+		ckBody, err := io.ReadAll(ckResp.Body)
+		_ = ckResp.Body.Close()
+		if err != nil {
+			return fmt.Errorf("failed reading checksums: %w", err)
+		}
+		sigResp, err := http.Get(latest.ChecksumsSigURL)
+		if err != nil {
+			return fmt.Errorf("failed downloading checksums signature: %w", err)
+		}
+		sigBody, err := io.ReadAll(sigResp.Body)
+		_ = sigResp.Body.Close()
+		if err != nil {
+			return fmt.Errorf("failed reading checksums signature: %w", err)
+		}
+
+		// Verify signature using embedded trusted public key(s).
+		if err := verifyChecksumsSignature(ckBody, string(sigBody), trustedPubKeysHex); err != nil {
+			return fmt.Errorf("checksums signature verification failed: %w", err)
+		}
+
+		// Parse checksums and find expected hash for the chosen asset.
+		checks := parseChecksums(ckBody)
+		var ok bool
+		expected, ok = checks[latest.AssetName]
+		if !ok || expected == "" {
+			// Try fallback: use basename of asset URL
+			if latest.AssetURL != "" {
+				base := filepath.Base(latest.AssetURL)
+				if v, ok2 := checks[base]; ok2 {
+					expected = v
+					ok = true
+				}
 			}
 		}
-	}
-	if !ok || expected == "" {
-		return fmt.Errorf("no checksum entry found for asset %q in checksums.txt", latest.AssetName)
+		if !ok || expected == "" {
+			return fmt.Errorf("no checksum entry found for asset %q in checksums.txt", latest.AssetName)
+		}
+
+		slog.Info("checksums signature valid; downloading and verifying artifact")
+	} else {
+		slog.Info("skipping checksum verification as requested")
+		// expected remains empty when verification is disabled
+		expected = ""
 	}
 
-	slog.Info("checksums signature valid; downloading and verifying artifact")
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("could not locate executable: %w", err)
@@ -290,4 +306,5 @@ func Update(repo string, latest *Release, verify bool, trustedPubKeysHex []strin
 
 	// If Exec succeeds, this process is replaced and the following lines won't run.
 	return nil
+}
 }
