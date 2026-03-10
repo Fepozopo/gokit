@@ -30,14 +30,45 @@ type Release struct {
 	ChecksumsSigURL string
 }
 
+// UpdateCheckResult represents the outcome of checking for updates.
+// This provides clearer, structured information for callers instead of
+// relying solely on (bool, *Release, error) semantics.
+type UpdateCheckResult struct {
+	Available bool
+	Latest    *Release
+	// Reason contains an optional human-readable reason (for example why an
+	// automatic update cannot be applied - missing asset or missing checksums).
+	Reason string
+}
+
 // detectLatestRelease queries the GitHub Releases API and returns the best-match
 // release. It prefers published, non-prerelease releases with semver-compliant
 // tag names and returns the highest semver it can find. If no suitable release
 // is found it returns (nil, false, nil).
+//
+// This function sets recommended GitHub API headers and will honor an optional
+// GITHUB_TOKEN environment variable for authenticated requests to increase rate
+// limits.
 func detectLatestRelease(repo string) (*Release, bool, error) {
+	if repo == "" {
+		return nil, false, fmt.Errorf("empty repo")
+	}
+
 	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/releases", repo)
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(apiURL)
+
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed creating github request: %w", err)
+	}
+	// Recommended headers
+	req.Header.Set("User-Agent", "gokit-update-checker")
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	if token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN")); token != "" {
+		req.Header.Set("Authorization", "token "+token)
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, false, fmt.Errorf("github API request failed: %w", err)
 	}
@@ -95,17 +126,9 @@ func detectLatestRelease(repo string) (*Release, bool, error) {
 				continue
 			}
 		}
-		// normalize to start with v if missing (semver.Parse accepts both but keep consistent)
-		verStr := match
-		// semver.Parse expects no leading 'v' for github.com/blang/semver, but it supports v-prefixed too.
-		v, perr := semver.Parse(verStr)
+		v, perr := semver.Parse(match)
 		if perr != nil {
-			// try stripping leading 'v'
-			verStr = strings.TrimPrefix(match, "v")
-			v, perr = semver.Parse(verStr)
-			if perr != nil {
-				continue
-			}
+			continue
 		}
 		assetURL := ""
 		assetName := ""
@@ -147,7 +170,7 @@ func detectLatestRelease(repo string) (*Release, bool, error) {
 	})
 	best := candidates[0]
 
-	// Build a selfupdate.Release-like struct (only include fields present in the actual type)
+	// Build a Release struct
 	r := &Release{
 		Version:         best.ver,
 		AssetURL:        best.assetURL,
@@ -158,56 +181,107 @@ func detectLatestRelease(repo string) (*Release, bool, error) {
 	return r, true, nil
 }
 
-func CheckForUpdates(currentVersion, repo string) (bool, *Release, error) {
-	// Use the GitHub API detector which is tolerant of tag naming.
+// CheckForUpdatesEx checks for updates and returns a structured UpdateCheckResult.
+//
+// It does not return an error for normal states (such as "new release exists but missing asset"),
+// those are represented via the Result.Reason. Errors are reserved for actual failures
+// contacting the API or other unexpected failures.
+func CheckForUpdates(currentVersion, repo string) (UpdateCheckResult, error) {
 	latest, found, err := detectLatestRelease(repo)
-	slog.Info("current version", "version", currentVersion)
 	if err != nil {
-		return false, nil, fmt.Errorf("update check failed: %w", err)
+		return UpdateCheckResult{}, fmt.Errorf("update check failed: %w", err)
 	}
-	if latest == nil {
-		slog.Info("no release information available from GitHub")
+	if !found || latest == nil {
+		return UpdateCheckResult{
+			Available: false,
+			Latest:    nil,
+			Reason:    "no releases found",
+		}, nil
 	}
 
-	if latest != nil {
-		slog.Info("latest version", "version", latest.Version)
-	}
-
+	// Try parsing current version; if parse fails we treat as unknown and indicate update available
 	currentSemVer, parseErr := semver.Parse(currentVersion)
 	if parseErr != nil {
-		// If the built Version isn't valid semver, continue but warn.
-		slog.Warn("could not parse current version", "version", currentVersion, "error", parseErr)
+		return UpdateCheckResult{
+			Available: true,
+			Latest:    latest,
+			Reason:    "could not parse current version",
+		}, nil
 	}
 
-	// No release found or nil result -> nothing to do.
-	if !found || latest == nil {
-		return false, nil, fmt.Errorf("no releases found for repo %q", repo)
+	// If latest is not strictly greater than current -> no update.
+	if !latest.Version.GT(currentSemVer) {
+		return UpdateCheckResult{
+			Available: false,
+			Latest:    latest,
+			Reason:    "already up-to-date",
+		}, nil
 	}
 
-	// If same version -> up-to-date.
-	if latest.Version.Equals(currentSemVer) {
-		slog.Info("already running latest version", "version", currentSemVer)
-		return false, latest, nil
-	}
-
-	// If we don't have an asset URL, cannot update automatically.
+	// Newer release exists. Return reason if automatic update cannot be applied.
 	if latest.AssetURL == "" {
-		return true, latest, fmt.Errorf("new version %s available but no downloadable asset", latest.Version)
+		return UpdateCheckResult{
+			Available: true,
+			Latest:    latest,
+			Reason:    "new version available but no downloadable asset",
+		}, nil
 	}
-
-	// Signed checksums are not present for the release.
 	if latest.ChecksumsURL == "" || latest.ChecksumsSigURL == "" {
-		slog.Warn("new version available but missing checksums or signature", "version", latest.Version)
-		return true, latest, fmt.Errorf("new version available but missing checksums or signature")
+		return UpdateCheckResult{
+			Available: true,
+			Latest:    latest,
+			Reason:    "new version available but missing checksums or signature",
+		}, nil
 	}
 
-	// Prompt the user to confirm updating.
-	slog.Info("A new version is available", "version", latest.Version)
-	return true, latest, nil
+	return UpdateCheckResult{
+		Available: true,
+		Latest:    latest,
+	}, nil
 }
 
+// Update downloads and installs the given latest release. When verify is true,
+// it will download checksums and signature and verify them using the provided
+// trusted public key hex strings. HTTP handling uses timeouts and proper
+// response status checks. GITHUB_TOKEN (if set) is used for authenticated
+// requests for the checksums/signature downloads.
 func Update(repo string, latest *Release, verify bool, trustedPubKeysHex []string) error {
+	if latest == nil {
+		return fmt.Errorf("no release information provided")
+	}
+
 	var expected string
+
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	// Helper to perform GET with standard headers and optional auth.
+	getWithHeaders := func(url string) ([]byte, error) {
+		if url == "" {
+			return nil, fmt.Errorf("empty url")
+		}
+		req, err := http.NewRequest(http.MethodGet, url, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed creating request: %w", err)
+		}
+		req.Header.Set("User-Agent", "gokit-update-checker")
+		if token := os.Getenv("GITHUB_TOKEN"); token != "" {
+			req.Header.Set("Authorization", "token "+token)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("request failed: %w", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return nil, fmt.Errorf("request returned status %d: %s", resp.StatusCode, string(body))
+		}
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("failed reading response body: %w", err)
+		}
+		return body, nil
+	}
 
 	if verify {
 		slog.Info("verifying release checksums signature")
@@ -217,24 +291,14 @@ func Update(repo string, latest *Release, verify bool, trustedPubKeysHex []strin
 			return fmt.Errorf("missing checksums or signature URL for release %s", latest.Version)
 		}
 
-		// Download checksums and signature
-		ckResp, err := http.Get(latest.ChecksumsURL)
+		// Download checksums and signature using getWithHeaders to ensure proper headers/timeouts.
+		ckBody, err := getWithHeaders(latest.ChecksumsURL)
 		if err != nil {
 			return fmt.Errorf("failed downloading checksums: %w", err)
 		}
-		ckBody, err := io.ReadAll(ckResp.Body)
-		_ = ckResp.Body.Close()
-		if err != nil {
-			return fmt.Errorf("failed reading checksums: %w", err)
-		}
-		sigResp, err := http.Get(latest.ChecksumsSigURL)
+		sigBody, err := getWithHeaders(latest.ChecksumsSigURL)
 		if err != nil {
 			return fmt.Errorf("failed downloading checksums signature: %w", err)
-		}
-		sigBody, err := io.ReadAll(sigResp.Body)
-		_ = sigResp.Body.Close()
-		if err != nil {
-			return fmt.Errorf("failed reading checksums signature: %w", err)
 		}
 
 		// Verify signature using embedded trusted public key(s).
@@ -267,19 +331,19 @@ func Update(repo string, latest *Release, verify bool, trustedPubKeysHex []strin
 		expected = ""
 	}
 
+	// Find executable path
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("could not locate executable: %w", err)
 	}
 
+	// Use downloadAndReplace to fetch the release asset and replace the running executable.
+	// downloadAndReplace is expected to handle large downloads and atomic replacement.
 	if verify {
-		// Download, verify checksum, and atomically replace the executable.
 		if err := downloadAndReplace(latest.AssetURL, exe, true, expected); err != nil {
 			return fmt.Errorf("update failed: %w", err)
 		}
 	} else {
-		// Just download and replace without verifying checksum (not recommended).
-		// Pass an empty expected hash since verification is disabled.
 		if err := downloadAndReplace(latest.AssetURL, exe, false, ""); err != nil {
 			return fmt.Errorf("update failed: %w", err)
 		}
