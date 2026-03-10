@@ -53,21 +53,30 @@ import (
 )
 
 func main() {
-		currentVersion = "0.1.0" // replace with actual version
-		repo = "owner/repo" // replace with actual repo
+    currentVersion := "v0.1.0" // replace with actual version (set at build time)
+    repo := "owner/repo"       // replace with actual repo
 
-		// example hex public key(s) for signature verification, replace with actual trusted keys
-    var trustedPubKeysHex = []string{"a3f1c2d4e5b6a7980f1e2d3c4b5a6978c9d0e1f2a3b4c5d6e7f8091a2b3c4d5e"}
+    // example hex public key(s) for signature verification; keep the seed private
+    trustedPubKeysHex := []string{"a3f1c2d4e5b6a7980f1e2d3c4b5a6978c9d0e1f2a3b4c5d6e7f8091a2b3c4d5e"}
 
-    available, latest, err := update.CheckForUpdates(currentVersion, repo)
+    res, err := update.CheckForUpdates(currentVersion, repo)
     if err != nil {
         log.Fatal(err)
     }
-    if !available {
-        log.Println("already up-to-date")
+
+    if !res.Available {
+        // The Err field contains sentinel errors callers may inspect,
+        // e.g. update.ErrNoReleases, update.ErrNoAsset, update.ErrMissingChecksums
+        if res.Err != nil {
+            log.Printf("no update available: %v", res.Err)
+        } else {
+            log.Println("already up-to-date")
+        }
         return
     }
-    if err := update.Update("owner/repo", latest, true, trustedPubKeysHex); err != nil {
+
+    // When `verify` is true the update will verify checksums.txt with the provided trusted public keys (recommended).
+    if err := update.Update(repo, res.Latest, true, trustedPubKeysHex); err != nil {
         log.Fatalf("update failed: %v", err)
     }
 }
@@ -99,7 +108,11 @@ go run scripts/derive_pub/derive_pub.go "$SEED_B64"
 # prints 64-hex public key
 ```
 
-3. Add the public key to `update/trusted_key.go` so built binaries can verify release signatures.
+3. Provide the public key(s) to your application (in code, configuration, or environment) so it can verify release signatures. For example, embed the hex public key and pass it to `update.Update(...)`, or load trusted keys at runtime from a secure config.
+
+Notes on update checking
+
+- `CheckForUpdates` returns an `UpdateCheckResult` with fields `Available`, `Latest`, and `Err`. Inspect `UpdateCheckResult.Err` for programmatic hints (sentinel errors exported from the `update` package): `ErrNoReleases`, `ErrNoAsset`, `ErrMissingChecksums`, and `ErrCurrentVersionInvalid`.
 
 4. Build artifacts and produce `checksums.txt` (script will sign it if `ed25519_seed.bin` exists):
 
