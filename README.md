@@ -59,7 +59,7 @@ func main() {
 		// example hex public key(s) for signature verification, replace with actual trusted keys
     var trustedPubKeysHex = []string{"a3f1c2d4e5b6a7980f1e2d3c4b5a6978c9d0e1f2a3b4c5d6e7f8091a2b3c4d5e"}
 
-    available, latest, err := update.CheckForUpdates(repo, currentVersion)
+    available, latest, err := update.CheckForUpdates(currentVersion, repo)
     if err != nil {
         log.Fatal(err)
     }

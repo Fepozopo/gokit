@@ -307,4 +307,3 @@ func Update(repo string, latest *Release, verify bool, trustedPubKeysHex []strin
 	// If Exec succeeds, this process is replaced and the following lines won't run.
 	return nil
 }
-}
