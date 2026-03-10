@@ -2,6 +2,7 @@ package update
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -30,15 +31,28 @@ type Release struct {
 	ChecksumsSigURL string
 }
 
+// Sentinel errors for programmatic handling of update-check results.
+var (
+	// ErrNoReleases indicates the repository has no releases usable for update.
+	ErrNoReleases = errors.New("no releases found")
+	// ErrNoAsset indicates a release was found but no downloadable asset is present.
+	ErrNoAsset = errors.New("no downloadable asset")
+	// ErrMissingChecksums indicates checksums or signature are missing for the release.
+	ErrMissingChecksums = errors.New("missing checksums or signature")
+	// ErrCurrentVersionInvalid indicates the current version string could not be parsed.
+	ErrCurrentVersionInvalid = errors.New("could not parse current version")
+)
+
 // UpdateCheckResult represents the outcome of checking for updates.
-// This provides clearer, structured information for callers instead of
-// relying solely on (bool, *Release, error) semantics.
+// Use the Err field for programmatic inspection of special conditions
+// (e.g. missing assets or an unparsable current version).
 type UpdateCheckResult struct {
 	Available bool
 	Latest    *Release
-	// Reason contains an optional human-readable reason (for example why an
-	// automatic update cannot be applied - missing asset or missing checksums).
-	Reason string
+	// Err is non-nil when the check resolved to a special state that callers
+	// may want to inspect programmatically (e.g. ErrNoAsset). Note: network/API
+	// errors are still returned via the function error return value.
+	Err error
 }
 
 // detectLatestRelease queries the GitHub Releases API and returns the best-match
@@ -181,11 +195,11 @@ func detectLatestRelease(repo string) (*Release, bool, error) {
 	return r, true, nil
 }
 
-// CheckForUpdatesEx checks for updates and returns a structured UpdateCheckResult.
+// CheckForUpdates checks for updates and returns a structured UpdateCheckResult.
 //
 // It does not return an error for normal states (such as "new release exists but missing asset"),
-// those are represented via the Result.Reason. Errors are reserved for actual failures
-// contacting the API or other unexpected failures.
+// those states are represented in UpdateCheckResult.Err. Errors are reserved for
+// actual failures contacting the API or other unexpected failures.
 func CheckForUpdates(currentVersion, repo string) (UpdateCheckResult, error) {
 	latest, found, err := detectLatestRelease(repo)
 	if err != nil {
@@ -195,17 +209,18 @@ func CheckForUpdates(currentVersion, repo string) (UpdateCheckResult, error) {
 		return UpdateCheckResult{
 			Available: false,
 			Latest:    nil,
-			Reason:    "no releases found",
+			Err:       ErrNoReleases,
 		}, nil
 	}
 
 	// Try parsing current version; if parse fails we treat as unknown and indicate update available
 	currentSemVer, parseErr := semver.Parse(currentVersion)
 	if parseErr != nil {
+		slog.Warn("could not parse current version; treating as update available", "version", currentVersion, "error", parseErr)
 		return UpdateCheckResult{
 			Available: true,
 			Latest:    latest,
-			Reason:    "could not parse current version",
+			Err:       ErrCurrentVersionInvalid,
 		}, nil
 	}
 
@@ -214,29 +229,30 @@ func CheckForUpdates(currentVersion, repo string) (UpdateCheckResult, error) {
 		return UpdateCheckResult{
 			Available: false,
 			Latest:    latest,
-			Reason:    "already up-to-date",
+			Err:       nil,
 		}, nil
 	}
 
-	// Newer release exists. Return reason if automatic update cannot be applied.
+	// Newer release exists. Return Err field when automatic update cannot be applied.
 	if latest.AssetURL == "" {
 		return UpdateCheckResult{
 			Available: true,
 			Latest:    latest,
-			Reason:    "new version available but no downloadable asset",
+			Err:       ErrNoAsset,
 		}, nil
 	}
 	if latest.ChecksumsURL == "" || latest.ChecksumsSigURL == "" {
 		return UpdateCheckResult{
 			Available: true,
 			Latest:    latest,
-			Reason:    "new version available but missing checksums or signature",
+			Err:       ErrMissingChecksums,
 		}, nil
 	}
 
 	return UpdateCheckResult{
 		Available: true,
 		Latest:    latest,
+		Err:       nil,
 	}, nil
 }
 
