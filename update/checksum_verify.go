@@ -9,8 +9,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"time"
 )
+
+// defaultHTTPClient is used by helper download functions to ensure timeouts.
+var defaultHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 // verifyChecksumsSignature verifies the hex-encoded signature sigHex over the
 // checksums bytes ck using any of the trustedPubKeys (hex decoded). Returns
@@ -66,34 +71,12 @@ func parseChecksums(ck []byte) map[string]string {
 	return out
 }
 
-// downloadToTemp downloads url to a temp file in dir and returns the path.
-func downloadToTemp(url, dir, prefix string) (string, error) {
-	resp, err := http.Get(url)
-	if err != nil {
-		return "", fmt.Errorf("download failed: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("download returned status %d", resp.StatusCode)
-	}
-	tmpf, err := os.CreateTemp(dir, prefix)
-	if err != nil {
-		return "", fmt.Errorf("create temp: %w", err)
-	}
-	defer tmpf.Close()
-	if _, err := io.Copy(tmpf, resp.Body); err != nil {
-		os.Remove(tmpf.Name())
-		return "", fmt.Errorf("write temp: %w", err)
-	}
-	return tmpf.Name(), nil
-}
-
 // downloadAndReplace downloads assetURL to a temporary file in the same directory
 // as destPath and then atomically replaces destPath with the downloaded file.
 // If verify is true, it computes the SHA256 of the download and compares it to
 // expectedHex before performing the replacement.
 func downloadAndReplace(assetURL, destPath string, verify bool, expectedHex string) error {
-	resp, err := http.Get(assetURL)
+	resp, err := defaultHTTPClient.Get(assetURL)
 	if err != nil {
 		return fmt.Errorf("download failed: %w", err)
 	}
@@ -143,7 +126,7 @@ func downloadAndReplace(assetURL, destPath string, verify bool, expectedHex stri
 	// If verification requested, compare computed hash with expected.
 	if verify {
 		got := fmt.Sprintf("%x", shaSum)
-		if strings.ToLower(got) != strings.ToLower(strings.TrimSpace(expectedHex)) {
+		if !strings.EqualFold(got, strings.TrimSpace(expectedHex)) {
 			return fmt.Errorf("checksum mismatch: expected %s got %s", expectedHex, got)
 		}
 	}
@@ -216,4 +199,9 @@ func errorsIs(err error, s string) bool {
 	return strings.Contains(err.Error(), s)
 }
 
-func runtimeGOOS() string { return os.Getenv("GOOS_OVERRIDE") }
+func runtimeGOOS() string {
+	if v := os.Getenv("GOOS_OVERRIDE"); v != "" {
+		return v
+	}
+	return runtime.GOOS
+}

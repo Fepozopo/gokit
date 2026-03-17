@@ -376,7 +376,6 @@ func Update(repo string, latest *Release, verify bool, trustedPubKeysHex []strin
 		if startErr := cmd.Start(); startErr != nil {
 			// If fallback also fails, report success but instruct user to restart manually.
 			slog.Info("updated to new version but failed to restart automatically", "version", latest.Version, "execErr", err, "startErr", startErr)
-			slog.Info("please restart the application manually")
 			return nil
 		}
 		// Successfully started the new process; exit the current one.
