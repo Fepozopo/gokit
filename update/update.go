@@ -14,7 +14,6 @@ import (
 	"sort"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/Fepozopo/gokit/semver"
 )
@@ -29,6 +28,41 @@ type Release struct {
 	// ed25519 signature (hex) for the checksums file.
 	ChecksumsURL    string
 	ChecksumsSigURL string
+}
+
+// getWithHeaders performs a GET request using standard headers and optional extra headers.
+// It sets User-Agent, includes Authorization from GITHUB_TOKEN if present, merges extraHeaders,
+// and enforces response status checking and body reading.
+func getWithHeaders(client *http.Client, url string, extraHeaders map[string]string) ([]byte, error) {
+	if url == "" {
+		return nil, fmt.Errorf("empty url")
+	}
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed creating request: %w", err)
+	}
+	req.Header.Set("User-Agent", "gokit-update-checker")
+	// merge extra headers (e.g. Accept)
+	for k, v := range extraHeaders {
+		req.Header.Set(k, v)
+	}
+	if token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN")); token != "" {
+		req.Header.Set("Authorization", "token "+token)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("request returned status %d: %s", resp.StatusCode, string(body))
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed reading response body: %w", err)
+	}
+	return body, nil
 }
 
 // Sentinel errors for programmatic handling of update-check results.
@@ -69,33 +103,14 @@ func detectLatestRelease(repo string) (*Release, bool, error) {
 	}
 
 	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/releases", repo)
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := defaultHTTPClient
 
-	req, err := http.NewRequest("GET", apiURL, nil)
-	if err != nil {
-		return nil, false, fmt.Errorf("failed creating github request: %w", err)
-	}
-	// Recommended headers
-	req.Header.Set("User-Agent", "gokit-update-checker")
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	if token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN")); token != "" {
-		req.Header.Set("Authorization", "token "+token)
-	}
-
-	resp, err := client.Do(req)
+	// Use shared helper to perform GET with standard headers and allow the GitHub Accept header.
+	body, err := getWithHeaders(client, apiURL, map[string]string{
+		"Accept": "application/vnd.github.v3+json",
+	})
 	if err != nil {
 		return nil, false, fmt.Errorf("github API request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, false, fmt.Errorf("github API returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, false, fmt.Errorf("failed reading github response: %w", err)
 	}
 
 	// Minimal struct to parse releases JSON
@@ -268,36 +283,9 @@ func Update(repo string, latest *Release, verify bool, trustedPubKeysHex []strin
 
 	var expected string
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := defaultHTTPClient
 
-	// Helper to perform GET with standard headers and optional auth.
-	getWithHeaders := func(url string) ([]byte, error) {
-		if url == "" {
-			return nil, fmt.Errorf("empty url")
-		}
-		req, err := http.NewRequest(http.MethodGet, url, nil)
-		if err != nil {
-			return nil, fmt.Errorf("failed creating request: %w", err)
-		}
-		req.Header.Set("User-Agent", "gokit-update-checker")
-		if token := os.Getenv("GITHUB_TOKEN"); token != "" {
-			req.Header.Set("Authorization", "token "+token)
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("request failed: %w", err)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
-			return nil, fmt.Errorf("request returned status %d: %s", resp.StatusCode, string(body))
-		}
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, fmt.Errorf("failed reading response body: %w", err)
-		}
-		return body, nil
-	}
+	// Use shared doGetWithHeaders helper for HTTP GETs.
 
 	if verify {
 		slog.Info("verifying release checksums signature")
@@ -307,12 +295,12 @@ func Update(repo string, latest *Release, verify bool, trustedPubKeysHex []strin
 			return fmt.Errorf("missing checksums or signature URL for release %s", latest.Version)
 		}
 
-		// Download checksums and signature using getWithHeaders to ensure proper headers/timeouts.
-		ckBody, err := getWithHeaders(latest.ChecksumsURL)
+		// Download checksums and signature using shared helper to ensure proper headers/timeouts.
+		ckBody, err := getWithHeaders(client, latest.ChecksumsURL, nil)
 		if err != nil {
 			return fmt.Errorf("failed downloading checksums: %w", err)
 		}
-		sigBody, err := getWithHeaders(latest.ChecksumsSigURL)
+		sigBody, err := getWithHeaders(client, latest.ChecksumsSigURL, nil)
 		if err != nil {
 			return fmt.Errorf("failed downloading checksums signature: %w", err)
 		}

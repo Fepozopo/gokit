@@ -171,20 +171,23 @@ func downloadAndReplace(assetURL, destPath string, verify bool, expectedHex stri
 func copyFile(src, dst string) error {
 	sf, err := os.Open(src)
 	if err != nil {
-		return err
+		return fmt.Errorf("open src failed: %w", err)
 	}
 	defer sf.Close()
-	fi, _ := os.Stat(src)
+	fi, err := os.Stat(src)
+	if err != nil {
+		return fmt.Errorf("stat src failed: %w", err)
+	}
 	df, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fi.Mode())
 	if err != nil {
-		return err
+		return fmt.Errorf("open dst failed: %w", err)
 	}
 	defer df.Close()
 	if _, err := io.Copy(df, sf); err != nil {
-		return err
+		return fmt.Errorf("copy failed: %w", err)
 	}
 	if err := df.Sync(); err != nil {
-		return err
+		return fmt.Errorf("sync dst failed: %w", err)
 	}
 	return nil
 }
