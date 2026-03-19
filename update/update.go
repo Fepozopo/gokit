@@ -357,22 +357,34 @@ func Update(repo string, latest *Release, verify bool, trustedPubKeysHex []strin
 		}
 	}
 
-	// Attempt to restart the process by replacing the current process image.
+	// Attempt to restart the process by replacing the current process image on supported OSes.
 	argv := append([]string{exe}, os.Args[1:]...)
-	if err := syscall.Exec(exe, argv, os.Environ()); err != nil {
-		// Exec only returns on error. Try a fallback of starting the new binary as a child process.
+	if runtimeGOOS() != "windows" {
+		if err := syscall.Exec(exe, argv, os.Environ()); err != nil {
+			// Exec only returns on error. Try a fallback of starting the new binary as a child process.
+			cmd := exec.Command(exe, os.Args[1:]...)
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if startErr := cmd.Start(); startErr != nil {
+				// If fallback also fails, return an error so the caller can decide how to handle restart.
+				return fmt.Errorf("updated to new version but failed to restart automatically: execErr=%v startErr=%v", err, startErr)
+			}
+			// Successfully started the new process; return to caller.
+			slog.Info("updated to version (started child process)", "version", latest.Version)
+			return nil
+		}
+	} else {
+		// On Windows, syscall.Exec is not applicable; attempt to start the new process.
 		cmd := exec.Command(exe, os.Args[1:]...)
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if startErr := cmd.Start(); startErr != nil {
-			// If fallback also fails, report success but instruct user to restart manually.
-			slog.Info("updated to new version but failed to restart automatically", "version", latest.Version, "execErr", err, "startErr", startErr)
-			return nil
+			return fmt.Errorf("updated to new version but failed to restart automatically: startErr=%v", startErr)
 		}
-		// Successfully started the new process; exit the current one.
-		slog.Info("updated to version", "version", latest.Version)
-		os.Exit(0)
+		slog.Info("updated to version (started child process on windows)", "version", latest.Version)
+		return nil
 	}
 
 	// If Exec succeeds, this process is replaced and the following lines won't run.
