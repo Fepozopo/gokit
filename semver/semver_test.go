@@ -27,6 +27,51 @@ func TestParseValid(t *testing.T) {
 	}
 }
 
+func TestParseRejectsLeadingZerosAndInvalidPre(t *testing.T) {
+	reject := []string{
+		"v01.2.3",
+		"1.02.3",
+		"1.2.03",
+		"1.2.3-alpha.01",    // numeric pre-release with leading zero
+		"1.2.3-",            // empty pre-release identifier
+		"1.2.3-alpha..beta", // empty identifier in middle
+		"1.2.3-α",           // non-ASCII pre-release
+	}
+	for _, r := range reject {
+		if _, err := Parse(r); err == nil {
+			t.Fatalf("Parse(%q) expected error (should be rejected)", r)
+		}
+	}
+}
+
+func TestParseAcceptsBuildAndValidPre(t *testing.T) {
+	cases := []string{
+		"1.2.3+build.info.sig.sha256.abcdef",
+		"1.2.3-alpha.1",
+		"1.2.3",
+	}
+	for _, c := range cases {
+		if _, err := Parse(c); err != nil {
+			t.Fatalf("Parse(%q) unexpected error: %v", c, err)
+		}
+	}
+}
+
+func TestPrereleaseNumericComparisonLarge(t *testing.T) {
+	// ensure numeric pre-release comparison works for long numeric identifiers
+	a, err := Parse("1.0.0-12345678901234567890")
+	if err != nil {
+		t.Fatalf("Parse a unexpected error: %v", err)
+	}
+	b, err := Parse("1.0.0-1234567890123456789")
+	if err != nil {
+		t.Fatalf("Parse b unexpected error: %v", err)
+	}
+	if !a.GT(b) {
+		t.Fatalf("expected %q > %q by numeric pre-release comparison", a.String(), b.String())
+	}
+}
+
 func TestParseSignatureInBuild(t *testing.T) {
 	v, err := Parse("1.2.3+sig.sha256.deadbeef")
 	if err != nil {

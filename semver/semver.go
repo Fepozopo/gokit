@@ -81,22 +81,30 @@ func (v Version) GT(o Version) bool {
 		return false // v is pre-release, o is release => v < o
 	}
 	// both have pre-release: compare identifier by identifier
+	// Numeric identifiers are compared numerically. To avoid platform
+	// dependent integer overflow we compare numeric identifiers by
+	// length then lexicographically when lengths are equal (equivalent
+	// to numeric comparison for no-leading-zero numeric strings).
 	for i := 0; i < len(v.Pre) && i < len(o.Pre); i++ {
 		va := v.Pre[i]
 		ob := o.Pre[i]
-		vaNum, vaErr := strconv.Atoi(va)
-		obNum, obErr := strconv.Atoi(ob)
-		if vaErr == nil && obErr == nil {
-			if vaNum != obNum {
-				return vaNum > obNum
+		vaIsNum := isDigits(va)
+		obIsNum := isDigits(ob)
+		if vaIsNum && obIsNum {
+			if len(va) != len(ob) {
+				return len(va) > len(ob)
+			}
+			if va != ob {
+				return va > ob
 			}
 			// equal numeric, continue
+			continue
 		}
-		if vaErr == nil && obErr != nil {
+		if vaIsNum && !obIsNum {
 			// numeric < non-numeric
 			return false
 		}
-		if vaErr != nil && obErr == nil {
+		if !vaIsNum && obIsNum {
 			return true
 		}
 		// both non-numeric, lexicographical compare
@@ -109,6 +117,8 @@ func (v Version) GT(o Version) bool {
 }
 
 // Parse parses a semantic version string (allows optional leading 'v').
+//   - major/minor/patch must be non-negative integers without leading zeros (except "0")
+//   - pre-release identifiers must be ASCII alphanumerics or hyphen; if numeric, they must not have leading zeros
 func Parse(s string) (Version, error) {
 	orig := s
 	if strings.HasPrefix(s, "v") || strings.HasPrefix(s, "V") {
@@ -128,18 +138,35 @@ func Parse(s string) (Version, error) {
 	if len(parts) != 3 {
 		return Version{}, fmt.Errorf("invalid semver core (need major.minor.patch): %q", orig)
 	}
-	maj, err := strconv.Atoi(parts[0])
-	if err != nil {
-		return Version{}, fmt.Errorf("invalid major version %q in %q", parts[0], orig)
+	// validate core numeric identifiers: no leading zeros (unless "0"), no negatives, digits only
+	for i := 0; i < 3; i++ {
+		if !isDigits(parts[i]) {
+			return Version{}, fmt.Errorf("invalid numeric version %q in %q", parts[i], orig)
+		}
+		if !isNumericNoLeadingZeros(parts[i]) {
+			return Version{}, fmt.Errorf("invalid numeric identifier (leading zero) %q in %q", parts[i], orig)
+		}
 	}
-	min, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return Version{}, fmt.Errorf("invalid minor version %q in %q", parts[1], orig)
+	maj, _ := strconv.Atoi(parts[0])
+	min, _ := strconv.Atoi(parts[1])
+	patch, _ := strconv.Atoi(parts[2])
+
+	// validate pre-release identifiers per semver (if any)
+	if len(pre) > 0 {
+		for _, ident := range pre {
+			if ident == "" {
+				return Version{}, fmt.Errorf("empty pre-release identifier in %q", orig)
+			}
+			if !isValidPrereleaseIdent(ident) {
+				return Version{}, fmt.Errorf("invalid pre-release identifier %q in %q", ident, orig)
+			}
+			// if numeric, must not have leading zeros
+			if isDigits(ident) && !isNumericNoLeadingZeros(ident) {
+				return Version{}, fmt.Errorf("numeric pre-release identifier with leading zeros %q in %q", ident, orig)
+			}
+		}
 	}
-	patch, err := strconv.Atoi(parts[2])
-	if err != nil {
-		return Version{}, fmt.Errorf("invalid patch version %q in %q", parts[2], orig)
-	}
+
 	v := Version{Major: maj, Minor: min, Patch: patch, Pre: pre, Build: build}
 
 	// Parse signature token out of build metadata if present. Accept forms:
@@ -179,6 +206,57 @@ func isHex(s string) bool {
 	for i := 0; i < len(s); i++ {
 		ch := s[i]
 		if (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// isDigits returns true if s contains only ASCII digits and at least one char.
+func isDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	// iterate bytes to ensure ASCII-only digits and avoid rune-width surprises
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// isNumericNoLeadingZeros returns true if s is "0" or does not start with '0'.
+func isNumericNoLeadingZeros(s string) bool {
+	if s == "" {
+		return false
+	}
+	if s == "0" {
+		return true
+	}
+	return !(len(s) > 1 && s[0] == '0')
+}
+
+// isValidPrereleaseIdent returns true if the identifier contains only
+// ASCII alphanumerics and hyphen (per semver) and is non-empty.
+func isValidPrereleaseIdent(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		// restrict to ASCII letters/digits and hyphen
+		if r == '-' {
+			continue
+		}
+		if r >= '0' && r <= '9' {
+			continue
+		}
+		if r >= 'A' && r <= 'Z' {
+			continue
+		}
+		if r >= 'a' && r <= 'z' {
 			continue
 		}
 		return false
