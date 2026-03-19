@@ -1,7 +1,6 @@
 package semver
 
 import (
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -126,20 +125,20 @@ func Parse(s string) (Version, error) {
 		s = s[:idx]
 	}
 	parts := strings.Split(s, ".")
-	if len(parts) < 3 {
-		return Version{}, fmt.Errorf("invalid semver (need major.minor.patch): %s", orig)
+	if len(parts) != 3 {
+		return Version{}, fmt.Errorf("invalid semver core (need major.minor.patch): %q", orig)
 	}
 	maj, err := strconv.Atoi(parts[0])
 	if err != nil {
-		return Version{}, errors.New("invalid major version")
+		return Version{}, fmt.Errorf("invalid major version %q in %q", parts[0], orig)
 	}
 	min, err := strconv.Atoi(parts[1])
 	if err != nil {
-		return Version{}, errors.New("invalid minor version")
+		return Version{}, fmt.Errorf("invalid minor version %q in %q", parts[1], orig)
 	}
 	patch, err := strconv.Atoi(parts[2])
 	if err != nil {
-		return Version{}, errors.New("invalid patch version")
+		return Version{}, fmt.Errorf("invalid patch version %q in %q", parts[2], orig)
 	}
 	v := Version{Major: maj, Minor: min, Patch: patch, Pre: pre, Build: build}
 
