@@ -139,12 +139,12 @@ func Parse(s string) (Version, error) {
 		return Version{}, fmt.Errorf("invalid semver core (need major.minor.patch): %q", orig)
 	}
 	// validate core numeric identifiers: no leading zeros (unless "0"), no negatives, digits only
-	for i := 0; i < 3; i++ {
-		if !isDigits(parts[i]) {
-			return Version{}, fmt.Errorf("invalid numeric version %q in %q", parts[i], orig)
+	for _, p := range parts[:3] {
+		if !isDigits(p) {
+			return Version{}, fmt.Errorf("invalid numeric version %q in %q", p, orig)
 		}
-		if !isNumericNoLeadingZeros(parts[i]) {
-			return Version{}, fmt.Errorf("invalid numeric identifier (leading zero) %q in %q", parts[i], orig)
+		if !isNumericNoLeadingZeros(p) {
+			return Version{}, fmt.Errorf("invalid numeric identifier (leading zero) %q in %q", p, orig)
 		}
 	}
 	maj, _ := strconv.Atoi(parts[0])
