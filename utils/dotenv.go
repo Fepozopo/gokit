@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"fmt"
 	"os"
 	"strings"
 )
@@ -33,7 +34,9 @@ func LoadDotEnv(path string) error {
 			}
 		}
 		val = strings.ReplaceAll(val, `\n`, "\n")
-		os.Setenv(key, val)
+		if err := os.Setenv(key, val); err != nil {
+		return fmt.Errorf("setenv %q failed: %w", key, err)
+	}
 	}
 	return nil
 }

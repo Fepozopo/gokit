@@ -53,7 +53,11 @@ func getWithHeaders(client *http.Client, url string, extraHeaders map[string]str
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			slog.Warn("response body close failed", "url", url, "err", cerr)
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("request returned status %d: %s", resp.StatusCode, string(body))

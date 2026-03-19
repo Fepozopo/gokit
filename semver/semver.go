@@ -153,27 +153,17 @@ func Parse(s string) (Version, error) {
 		for i := 0; i < len(parts); i++ {
 			p := strings.ToLower(parts[i])
 			if p == "sig" {
-				// form: sig.<hex> (next part is hex)
+				// form: sig.<hex> or sig.<algo>.<hex>
 				if i+1 < len(parts) {
-					hex := parts[i+1]
-					if isHex(hex) {
-						v.Signature = &Signature{Algo: "sha256", Hex: hex}
+					if isHex(parts[i+1]) {
+						v.Signature = &Signature{Algo: "sha256", Hex: parts[i+1]}
 						break
 					}
-				}
-			}
-			// also allow sig:<rest> or sig-...? Keep to dot-form per semver.
-			if strings.HasPrefix(p, "sig") {
-				// p could be "sig" (handled) or "sig<sep>..." but we only support
-				// exact "sig" token followed by parts for clarity.
-			}
-			// handle sig.<algo>.<hex>
-			if p == "sig" && i+2 < len(parts) {
-				algo := strings.ToLower(parts[i+1])
-				hex := parts[i+2]
-				if isHex(hex) {
-					v.Signature = &Signature{Algo: algo, Hex: hex}
-					break
+					if i+2 < len(parts) && isHex(parts[i+2]) {
+						algo := strings.ToLower(parts[i+1])
+						v.Signature = &Signature{Algo: algo, Hex: parts[i+2]}
+						break
+					}
 				}
 			}
 		}

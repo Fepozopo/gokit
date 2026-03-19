@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"io"
 	"net/http"
 	"os"
@@ -82,7 +83,11 @@ func downloadAndReplace(assetURL, destPath string, verify bool, expectedHex stri
 	if err != nil {
 		return fmt.Errorf("download failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			slog.Warn("download response body close failed", "url", assetURL, "err", cerr)
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("download returned status %d: %s", resp.StatusCode, string(b))
@@ -175,7 +180,11 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("open src failed: %w", err)
 	}
-	defer sf.Close()
+	defer func() {
+		if cerr := sf.Close(); cerr != nil {
+			slog.Warn("close src failed", "src", src, "err", cerr)
+		}
+	}()
 	fi, err := os.Stat(src)
 	if err != nil {
 		return fmt.Errorf("stat src failed: %w", err)
@@ -184,7 +193,11 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("open dst failed: %w", err)
 	}
-	defer df.Close()
+	defer func() {
+		if cerr := df.Close(); cerr != nil {
+			slog.Warn("close dst failed", "dst", dst, "err", cerr)
+		}
+	}()
 	if _, err := io.Copy(df, sf); err != nil {
 		return fmt.Errorf("copy failed: %w", err)
 	}
