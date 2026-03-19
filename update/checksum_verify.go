@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -141,7 +143,7 @@ func downloadAndReplace(assetURL, destPath string, verify bool, expectedHex stri
 	// Attempt atomic rename
 	if err := os.Rename(tmpName, destPath); err != nil {
 		// cross-device fallback
-		if errorsIs(err, "EXDEV") {
+		if isCrossDeviceErr(err) {
 			if cerr := copyFile(tmpName, destPath); cerr != nil {
 				return fmt.Errorf("copy fallback failed: %w (rename err: %v)", cerr, err)
 			}
@@ -192,14 +194,25 @@ func copyFile(src, dst string) error {
 	return nil
 }
 
-// These small wrappers avoid importing syscall/runtime in this file so tests
-// can more easily stub if needed.
-func errorsIs(err error, s string) bool {
+// isCrossDeviceErr reports whether err represents a cross-device rename error (EXDEV).
+// It prefers typed comparison via errors.Is and falls back to inspecting an
+// *os.LinkError's underlying errno for portability across platforms.
+func isCrossDeviceErr(err error) bool {
 	if err == nil {
 		return false
 	}
-	// very small portability shim: check string contains
-	return strings.Contains(err.Error(), s)
+	// Fast path using errors.Is which understands wrapped errors.
+	if errors.Is(err, syscall.EXDEV) {
+		return true
+	}
+	// Inspect os.LinkError.Err in case the error is wrapped differently.
+	var lerr *os.LinkError
+	if errors.As(err, &lerr) {
+		if errno, ok := lerr.Err.(syscall.Errno); ok && errno == syscall.EXDEV {
+			return true
+		}
+	}
+	return false
 }
 
 func runtimeGOOS() string {
