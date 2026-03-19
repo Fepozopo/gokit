@@ -35,8 +35,8 @@ func LoadDotEnv(path string) error {
 		}
 		val = strings.ReplaceAll(val, `\n`, "\n")
 		if err := os.Setenv(key, val); err != nil {
-		return fmt.Errorf("setenv %q failed: %w", key, err)
-	}
+			return fmt.Errorf("setenv %q failed: %w", key, err)
+		}
 	}
 	return nil
 }
