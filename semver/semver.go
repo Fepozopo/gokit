@@ -139,12 +139,12 @@ func Parse(s string) (Version, error) {
 		return Version{}, fmt.Errorf("invalid semver core (need major.minor.patch): %q", orig)
 	}
 	// validate core numeric identifiers: no leading zeros (unless "0"), no negatives, digits only
-	for _, p := range parts[:3] {
-		if !isDigits(p) {
-			return Version{}, fmt.Errorf("invalid numeric version %q in %q", p, orig)
+	for _, part := range parts[:3] {
+		if !isDigits(part) {
+			return Version{}, fmt.Errorf("invalid numeric version %q in %q", part, orig)
 		}
-		if !isNumericNoLeadingZeros(p) {
-			return Version{}, fmt.Errorf("invalid numeric identifier (leading zero) %q in %q", p, orig)
+		if !isNumericNoLeadingZeros(part) {
+			return Version{}, fmt.Errorf("invalid numeric identifier (leading zero) %q in %q", part, orig)
 		}
 	}
 	maj, _ := strconv.Atoi(parts[0])
@@ -176,20 +176,21 @@ func Parse(s string) (Version, error) {
 	// them to find a segment starting with "sig".
 	if build != "" {
 		parts := strings.Split(build, ".")
-		for i := 0; i < len(parts); i++ {
-			p := strings.ToLower(parts[i])
-			if p == "sig" {
-				// form: sig.<hex> or sig.<algo>.<hex>
-				if i+1 < len(parts) {
-					if isHex(parts[i+1]) {
-						v.Signature = &Signature{Algo: "sha256", Hex: parts[i+1]}
-						break
-					}
-					if i+2 < len(parts) && isHex(parts[i+2]) {
-						algo := strings.ToLower(parts[i+1])
-						v.Signature = &Signature{Algo: algo, Hex: parts[i+2]}
-						break
-					}
+		for i, part := range parts {
+			p := strings.ToLower(part)
+			if p != "sig" {
+				continue
+			}
+			// form: sig.<hex> or sig.<algo>.<hex>
+			if i+1 < len(parts) {
+				if isHex(parts[i+1]) {
+					v.Signature = &Signature{Algo: "sha256", Hex: parts[i+1]}
+					break
+				}
+				if i+2 < len(parts) && isHex(parts[i+2]) {
+					algo := strings.ToLower(parts[i+1])
+					v.Signature = &Signature{Algo: algo, Hex: parts[i+2]}
+					break
 				}
 			}
 		}

@@ -2,9 +2,12 @@
 
 Small collection of reusable Go helpers and release utilities used across projects.
 
+
 This repository contains a few focused packages and helper scripts that make it
 easy to parse/compare semantic versions, implement a secure self-update flow
 (signed checksums + ed25519 verification), and load simple `.env` files.
+
+Requires Go 1.26+ (see `go.mod`).
 
 Contents
 
@@ -92,7 +95,10 @@ if err := utils.LoadDotEnv(".env"); err != nil {
 }
 ```
 
+
 Build & release workflow
+
+Note: `scripts/build-all.sh` builds each subdirectory under `cmd/` as a separate `package main` binary and writes outputs to `bin/`. Each `cmd/<name>` should be a `package main`. If no commands are present under `cmd/` the script exits with an error ("No commands found under cmd/ to build."). To build a single command manually use `go build ./cmd/<name>`.
 
 1. Generate an ed25519 seed (keep it private):
 
@@ -108,16 +114,31 @@ go run scripts/derive_pub/derive_pub.go "$SEED_B64"
 # prints 64-hex public key
 ```
 
+Note: `scripts/derive_pub/derive_pub.go` expects a base64-encoded seed (pass the raw seed through `base64` as shown). The signer `scripts/sign_checksums/sign_checksums.go` accepts either a raw 32‑byte seed file or a base64-encoded seed when signing checksums.
+
 3. Provide the public key(s) to your application (in code, configuration, or environment) so it can verify release signatures. For example, embed the hex public key and pass it to `update.Update(...)`, or load trusted keys at runtime from a secure config.
 
 Notes on update checking
 
 - `CheckForUpdates` returns an `UpdateCheckResult` with fields `Available`, `Latest`, and `Err`. Inspect `UpdateCheckResult.Err` for programmatic hints (sentinel errors exported from the `update` package): `ErrNoReleases`, `ErrNoAsset`, `ErrMissingChecksums`, and `ErrCurrentVersionInvalid`.
 
+GitHub API token: the update code sets appropriate GitHub API headers and honors the `GITHUB_TOKEN` environment variable for authenticated requests. Export a token to increase rate limits or to access private releases:
+
+```bash
+export GITHUB_TOKEN="ghp_..."
+```
+
 4. Build artifacts and produce `checksums.txt` (script will sign it if `ed25519_seed.bin` exists):
 
 ```bash
 ./scripts/build-all.sh
+```
+
+The build script writes `checksums.txt`. If `ed25519_seed.bin` exists the script will run the signer to produce `checksums.txt.sig` which is a single-line hex-encoded ed25519 signature over the checksums file. You can sign manually:
+
+```bash
+go run scripts/sign_checksums/sign_checksums.go checksums.txt ed25519_seed.bin
+# writes checksums.txt.sig (hex-encoded ed25519 signature)
 ```
 
 5. Upload built binaries plus `checksums.txt` and `checksums.txt.sig` to a GitHub Release.
