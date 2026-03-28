@@ -220,14 +220,21 @@ func OpenFilesPicker(title string) ([]string, error) {
 
 func pickFilesDarwin(title string) ([]string, error) {
 	escaped := escapeAppleScriptString(title)
-	// Ask for multiple selection: choose file with prompt "Title" with multiple selections allowed
-	script := fmt.Sprintf(`set p to (choose file with prompt "%s" with multiple selections allowed)
-set out to ""
-repeat with i in p
-	set out to out & POSIX path of i & "%s"
-end repeat
-return out`, escaped, string(rune(0)))
-	// We use a NUL separator between paths to robustly split them.
+	// Build AppleScript that collects POSIX paths and returns them joined by newline.
+	// Using a NUL byte inside the -e argument can cause exec errors on macOS, so
+	// we use newline as the separator which osascript handles fine.
+	script := fmt.Sprintf(`set chosen to (choose file with prompt "%s" with multiple selections allowed)
+set outList to {}
+if class of chosen is list then
+	repeat with i in chosen
+		set end of outList to POSIX path of i
+	end repeat
+else
+	set end of outList to POSIX path of chosen
+end if
+set AppleScript's text item delimiters to "\n"
+return outList as string`, escaped)
+
 	out, err := exec.Command("osascript", "-e", script).Output()
 	if err != nil {
 		if isOsascriptCancel(err) {
@@ -235,11 +242,14 @@ return out`, escaped, string(rune(0)))
 		}
 		return nil, fmt.Errorf("osascript error: %w", err)
 	}
-	raw := string(out)
+	raw := strings.TrimSpace(string(out))
 	if raw == "" {
 		return nil, nil
 	}
-	parts := splitNuls(raw)
+	parts := strings.Split(raw, "\n")
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
 	return parts, nil
 }
 
