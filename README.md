@@ -8,7 +8,7 @@ easy to parse/compare semantic versions, implement a secure self-update flow
 
 Requires Go 1.26+ (see `go.mod`).
 
-Table of contents
+## Table of contents
 
 - [Contents](#contents)
 - [Quick examples](#quick-examples)
@@ -20,7 +20,7 @@ Table of contents
 - [Testing](#testing)
 - [License](#license)
 
-Contents
+## Contents
 
 - [semver/](./semver/) — parse and compare semantic versions.
 - [update/](./update/) — helpers to detect releases on GitHub, verify signed `checksums.txt`, download artifacts and atomically replace the running executable.
