@@ -199,6 +199,8 @@ Notes
 - Keep `ed25519_seed.bin` secret; it is listed in `.gitignore` by default.
 - Add one or more trusted public keys in to allow key rotation.
 
+---
+
 ## Testing
 
 Run unit tests:
@@ -206,6 +208,8 @@ Run unit tests:
 ```bash
 go test ./...
 ```
+
+---
 
 ## License
 
