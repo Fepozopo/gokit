@@ -2,25 +2,40 @@
 
 Small collection of reusable Go helpers and release utilities used across projects.
 
-
 This repository contains a few focused packages and helper scripts that make it
 easy to parse/compare semantic versions, implement a secure self-update flow
 (signed checksums + ed25519 verification), and load simple `.env` files.
 
 Requires Go 1.26+ (see `go.mod`).
 
+Table of contents
+
+- [Contents](#contents)
+- [Quick examples](#quick-examples)
+  - [Parse a version and read a parsed signature](#parse-a-version-and-read-a-parsed-signature-if-present)
+  - [Check for updates and apply them (basic pattern)](#check-for-updates-and-apply-them-basic-pattern)
+  - [Load a `.env` file into environment variables](#load-a-env-file-into-environment-variables)
+- [File picker utility](#file-picker-utility)
+- [Build & release workflow](#build--release-workflow)
+- [Testing](#testing)
+- [License](#license)
+
 Contents
 
-- `semver/` — parse and compare semantic versions. Supports pre-release, build
-  metadata and parsing a lightweight signature token from build metadata.
-- `update/` — helpers to detect releases on GitHub, verify signed `checksums.txt`,
-  download artifacts and atomically replace the running executable.
-- `utils/` — small utilities; currently `LoadDotEnv` for simple `.env` parsing.
-- `scripts/` — build and signing helpers (`build-all.sh`, signing and key derivation tools).
+- [semver/](./semver/) — parse and compare semantic versions.
+- [update/](./update/) — helpers to detect releases on GitHub, verify signed `checksums.txt`, download artifacts and atomically replace the running executable.
+- [utils/](./utils/) — small utilities:
+  - [utils/file.go](./utils/file.go) — cross-platform file-picker (`OpenFilePicker`, `OpenFilesPicker`).
+  - [utils/dotenv.go](./utils/dotenv.go) — `.env` loader (`LoadDotEnv`).
+- [scripts/](./scripts/) — build and signing helpers (`build-all.sh`, signing and key derivation tools).
+- [\_examples/](./_examples/) — runnable examples:
+  - [\_examples/file_eg.go](./_examples/file_eg.go) — demonstrates the file picker helpers.
 
-Quick examples
+---
 
-Parse a version and read a parsed signature (if present):
+## Quick examples
+
+### Parse a version and read a parsed signature (if present)
 
 ```go
 package main
@@ -44,7 +59,7 @@ func main() {
 }
 ```
 
-Check for updates and apply them (basic pattern):
+### Check for updates and apply them (basic pattern)
 
 ```go
 package main
@@ -85,7 +100,7 @@ func main() {
 }
 ```
 
-Load a `.env` file into environment variables:
+### Load a `.env` file into environment variables
 
 ```go
 import "github.com/Fepozopo/gokit/utils"
@@ -95,10 +110,59 @@ if err := utils.LoadDotEnv(".env"); err != nil {
 }
 ```
 
+---
 
-Build & release workflow
+## File picker utility
 
-Note: `scripts/build-all.sh` builds each subdirectory under `cmd/` as a separate `package main` binary and writes outputs to `bin/`. Each `cmd/<name>` should be a `package main`. If no commands are present under `cmd/` the script exits with an error ("No commands found under cmd/ to build."). To build a single command manually use `go build ./cmd/<name>`.
+A small, dependency-free helper that opens the system's native file picker and
+returns the selected path(s). The implementation is in `gokit/utils/file.go`.
+
+Behavior by platform:
+
+- macOS: uses `osascript` (AppleScript) to show `choose file` dialogs.
+- Windows: uses PowerShell (`System.Windows.Forms.OpenFileDialog`).
+- Linux: tries `zenity`, then `kdialog`. If neither is available the package falls
+  back to a console prompt.
+
+Exported helpers:
+
+- `OpenFilePicker(title string) (string, error)` — single-file picker. Returns an
+  empty string + nil error if the user cancels.
+- `OpenFilesPicker(title string) ([]string, error)` — multi-file picker. Returns
+  an empty slice + nil error on cancel.
+
+Notes / requirements:
+
+- The helper intentionally has no third-party dependencies and shells out to
+  platform tools. Ensure those backends are available for GUI dialogs:
+  - macOS: `osascript` (standard)
+  - Windows: `powershell`
+  - Linux: `zenity` or `kdialog`
+- If no GUI backend is present on Linux the code will prompt for paths on stdin.
+- Cancelling a dialog returns an empty result and a nil error (so callers can
+  treat cancellation separately from real errors).
+- On macOS the AppleScript is passed via `osascript -e`. If you encounter issues
+  with very long/complex scripts the implementation can be adjusted to write the
+  AppleScript to a temporary file and call `osascript /tmp/script`.
+
+Helpful links
+
+- Implementation: [utils/file.go](./utils/file.go)
+- Example: [\_examples/file_eg.go](./_examples/file_eg.go)
+
+To run the included example:
+
+```bash
+go run ./_examples/file_eg.go
+```
+
+---
+
+## Build & release workflow
+
+- `scripts/build-all.sh` — build artifacts for supported platforms and produce `checksums.txt`. If an ed25519 seed is present the script may sign checksums.
+- `scripts/sign_checksums/` — signer helper.
+- `scripts/derive_pub/` — derive public key helper.
 
 1. Generate an ed25519 seed (keep it private):
 
@@ -114,21 +178,16 @@ go run scripts/derive_pub/derive_pub.go "$SEED_B64"
 # prints 64-hex public key
 ```
 
-Note: `scripts/derive_pub/derive_pub.go` expects a base64-encoded seed (pass the raw seed through `base64` as shown). The signer `scripts/sign_checksums/sign_checksums.go` accepts either a raw 32‑byte seed file or a base64-encoded seed when signing checksums.
-
-3. Provide the public key(s) to your application (in code, configuration, or environment) so it can verify release signatures. For example, embed the hex public key and pass it to `update.Update(...)`, or load trusted keys at runtime from a secure config.
-
 Notes on update checking
 
-- `CheckForUpdates` returns an `UpdateCheckResult` with fields `Available`, `Latest`, and `Err`. Inspect `UpdateCheckResult.Err` for programmatic hints (sentinel errors exported from the `update` package): `ErrNoReleases`, `ErrNoAsset`, `ErrMissingChecksums`, and `ErrCurrentVersionInvalid`.
-
-GitHub API token: the update code sets appropriate GitHub API headers and honors the `GITHUB_TOKEN` environment variable for authenticated requests. Export a token to increase rate limits or to access private releases:
+- `CheckForUpdates` returns an `UpdateCheckResult` with fields `Available`, `Latest`, and `Err`. Inspect `UpdateCheckResult.Err` for programmatic hints (sentinel errors exported from the `update` package): `ErrNoReleases`, `ErrNoAsset`, `ErrMissing_CHECKSUMS`, and `ErrCurrentVersionInvalid`.
+- The update code honors the `GITHUB_TOKEN` environment variable for authenticated requests. Export a token to increase rate limits or to access private releases:
 
 ```bash
 export GITHUB_TOKEN="ghp_..."
 ```
 
-4. Build artifacts and produce `checksums.txt` (script will sign it if `ed25519_seed.bin` exists):
+Build artifacts:
 
 ```bash
 ./scripts/build-all.sh
@@ -141,15 +200,11 @@ go run scripts/sign_checksums/sign_checksums.go checksums.txt ed25519_seed.bin
 # writes checksums.txt.sig (hex-encoded ed25519 signature)
 ```
 
-5. Upload built binaries plus `checksums.txt` and `checksums.txt.sig` to a GitHub Release.
+Upload built binaries plus `checksums.txt` and `checksums.txt.sig` to a GitHub Release.
 
-Notes
+---
 
-- `checksums.txt` entries use SHA256 in the form: `<sha256>  <filename>` (two spaces). The parser accepts single-space variants too.
-- Keep `ed25519_seed.bin` secret; it is listed in `.gitignore` by default.
-- Add one or more trusted public keys in to allow key rotation.
-
-Testing
+## Testing
 
 Run unit tests:
 
@@ -157,6 +212,8 @@ Run unit tests:
 go test ./...
 ```
 
-License
+---
+
+## License
 
 MIT. See `LICENSE` for details.
