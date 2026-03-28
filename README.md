@@ -12,8 +12,8 @@ Table of contents
 
 - [Contents](#contents)
 - [Quick examples](#quick-examples)
-  - [Parse a version and read a parsed signature](#parse-a-version-and-read-a-parsed-signature)
-  - [Check for updates and apply them](#check-for-updates-and-apply-them)
+  - [Parse a version and read a parsed signature](#parse-a-version-and-read-a-parsed-signature-if-present)
+  - [Check for updates and apply them (basic pattern)](#check-for-updates-and-apply-them-basic-pattern)
   - [Load a `.env` file into environment variables](#load-a-env-file-into-environment-variables)
 - [File picker utility](#file-picker-utility)
 - [Build & release workflow](#build--release-workflow)
@@ -148,7 +148,6 @@ Notes / requirements:
 Helpful links
 
 - Implementation: [utils/file.go](./utils/file.go)
-- Dotenv loader: [utils/dotenv.go](./utils/dotenv.go)
 - Example: [\_examples/file_eg.go](./_examples/file_eg.go)
 
 To run the included example:
