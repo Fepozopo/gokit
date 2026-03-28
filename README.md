@@ -2,7 +2,6 @@
 
 Small collection of reusable Go helpers and release utilities used across projects.
 
-
 This repository contains a few focused packages and helper scripts that make it
 easy to parse/compare semantic versions, implement a secure self-update flow
 (signed checksums + ed25519 verification), and load simple `.env` files.
@@ -15,10 +14,61 @@ Contents
   metadata and parsing a lightweight signature token from build metadata.
 - `update/` — helpers to detect releases on GitHub, verify signed `checksums.txt`,
   download artifacts and atomically replace the running executable.
-- `utils/` — small utilities; currently `LoadDotEnv` for simple `.env` parsing.
+- `utils/` — small utilities; includes `LoadDotEnv` and a cross-platform file-picker
+  helper (`OpenFilePicker` / `OpenFilesPicker`).
 - `scripts/` — build and signing helpers (`build-all.sh`, signing and key derivation tools).
+- `_examples/` — small runnable examples demonstrating utility helpers.
 
-Quick examples
+---
+
+## File picker utility
+
+A small, dependency-free helper that opens the system's native file picker and
+returns the selected path(s). The implementation is in `gokit/utils/file.go`.
+
+Behavior by platform:
+
+- macOS: uses `osascript` (AppleScript) to show `choose file` dialogs.
+- Windows: uses PowerShell (`System.Windows.Forms.OpenFileDialog`).
+- Linux: tries `zenity`, then `kdialog`. If neither is available the package falls
+  back to a console prompt.
+
+Exported helpers:
+
+- `OpenFilePicker(title string) (string, error)` — single-file picker. Returns an
+  empty string + nil error if the user cancels.
+- `OpenFilesPicker(title string) ([]string, error)` — multi-file picker. Returns
+  an empty slice + nil error on cancel.
+
+Notes / requirements:
+
+- The helper intentionally has no third-party dependencies and shells out to
+  platform tools. Ensure those backends are available for GUI dialogs:
+  - macOS: `osascript` (standard)
+  - Windows: `powershell` (or `pwsh` if you prefer; the code calls `powershell`)
+  - Linux: `zenity` or `kdialog`
+- If no GUI backend is present on Linux the code will prompt for paths on stdin.
+- Cancelling a dialog returns an empty result and a nil error (so callers can
+  treat cancellation separately from real errors).
+- On macOS the AppleScript is passed via `osascript -e`. Very large or highly
+  complex titles are best avoided; if you encounter issues the implementation
+  can be adjusted to write the AppleScript to a temporary file and call `osascript /tmp/script`.
+
+Example: run the included example program that demonstrates both single- and
+multi-file pickers.
+
+To run the example:
+
+```gokit/_examples/file_eg.go#L1-200
+go run ./_examples/file_eg.go
+```
+
+(The example program is included in `_examples/file_eg.go` and demonstrates
+calling `OpenFilePicker` and `OpenFilesPicker`.)
+
+---
+
+## Quick examples
 
 Parse a version and read a parsed signature (if present):
 
@@ -95,8 +145,9 @@ if err := utils.LoadDotEnv(".env"); err != nil {
 }
 ```
 
+---
 
-Build & release workflow
+## Build & release workflow
 
 Note: `scripts/build-all.sh` builds each subdirectory under `cmd/` as a separate `package main` binary and writes outputs to `bin/`. Each `cmd/<name>` should be a `package main`. If no commands are present under `cmd/` the script exits with an error ("No commands found under cmd/ to build."). To build a single command manually use `go build ./cmd/<name>`.
 
@@ -120,9 +171,8 @@ Note: `scripts/derive_pub/derive_pub.go` expects a base64-encoded seed (pass the
 
 Notes on update checking
 
-- `CheckForUpdates` returns an `UpdateCheckResult` with fields `Available`, `Latest`, and `Err`. Inspect `UpdateCheckResult.Err` for programmatic hints (sentinel errors exported from the `update` package): `ErrNoReleases`, `ErrNoAsset`, `ErrMissingChecksums`, and `ErrCurrentVersionInvalid`.
-
-GitHub API token: the update code sets appropriate GitHub API headers and honors the `GITHUB_TOKEN` environment variable for authenticated requests. Export a token to increase rate limits or to access private releases:
+- `CheckForUpdates` returns an `UpdateCheckResult` with fields `Available`, `Latest`, and `Err`. Inspect `UpdateCheckResult.Err` for programmatic hints (sentinel errors exported from the `update` package): `ErrNoReleases`, `ErrNoAsset`, `ErrMissingChecksUMS`, and `ErrCurrentVersionInvalid`.
+- The update code honors the `GITHUB_TOKEN` environment variable for authenticated requests. Export a token to increase rate limits or to access private releases:
 
 ```bash
 export GITHUB_TOKEN="ghp_..."
@@ -149,7 +199,7 @@ Notes
 - Keep `ed25519_seed.bin` secret; it is listed in `.gitignore` by default.
 - Add one or more trusted public keys in to allow key rotation.
 
-Testing
+## Testing
 
 Run unit tests:
 
@@ -157,6 +207,6 @@ Run unit tests:
 go test ./...
 ```
 
-License
+## License
 
 MIT. See `LICENSE` for details.
