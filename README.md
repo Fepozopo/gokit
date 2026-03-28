@@ -21,6 +21,85 @@ Contents
 
 ---
 
+## Quick examples
+
+### Parse a version and read a parsed signature (if present):
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+
+    "github.com/Fepozopo/gokit/semver"
+)
+
+func main() {
+    v, err := semver.Parse("v1.2.3+sig.sha256.deadbeef")
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println("version:", v.String())
+    if v.HasSignature() {
+        fmt.Printf("signature: algo=%s hex=%s\n", v.Signature.Algo, v.Signature.Hex)
+    }
+}
+```
+
+### Check for updates and apply them (basic pattern):
+
+```go
+package main
+
+import (
+    "log"
+
+    "github.com/Fepozopo/gokit/update"
+)
+
+func main() {
+    currentVersion := "v0.1.0" // replace with actual version (set at build time)
+    repo := "owner/repo"       // replace with actual repo
+
+    // example hex public key(s) for signature verification; keep the seed private
+    trustedPubKeysHex := []string{"a3f1c2d4e5b6a7980f1e2d3c4b5a6978c9d0e1f2a3b4c5d6e7f8091a2b3c4d5e"}
+
+    res, err := update.CheckForUpdates(currentVersion, repo)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    if !res.Available {
+        // The Err field contains sentinel errors callers may inspect,
+        // e.g. update.ErrNoReleases, update.ErrNoAsset, update.ErrMissingChecksums
+        if res.Err != nil {
+            log.Printf("no update available: %v", res.Err)
+        } else {
+            log.Println("already up-to-date")
+        }
+        return
+    }
+
+    // When `verify` is true the update will verify checksums.txt with the provided trusted public keys (recommended).
+    if err := update.Update(repo, res.Latest, true, trustedPubKeysHex); err != nil {
+        log.Fatalf("update failed: %v", err)
+    }
+}
+```
+
+### Load a `.env` file into environment variables:
+
+```go
+import "github.com/Fepozopo/gokit/utils"
+
+if err := utils.LoadDotEnv(".env"); err != nil {
+    // handle error or ignore (LoadDotEnv returns an error if file can't be read)
+}
+```
+
+---
+
 ## File picker utility
 
 A small, dependency-free helper that opens the system's native file picker and
@@ -68,86 +147,7 @@ calling `OpenFilePicker` and `OpenFilesPicker`.)
 
 ---
 
-## Quick examples
-
-Parse a version and read a parsed signature (if present):
-
-```go
-package main
-
-import (
-    "fmt"
-    "log"
-
-    "github.com/Fepozopo/gokit/semver"
-)
-
-func main() {
-    v, err := semver.Parse("v1.2.3+sig.sha256.deadbeef")
-    if err != nil {
-        log.Fatal(err)
-    }
-    fmt.Println("version:", v.String())
-    if v.HasSignature() {
-        fmt.Printf("signature: algo=%s hex=%s\n", v.Signature.Algo, v.Signature.Hex)
-    }
-}
-```
-
-Check for updates and apply them (basic pattern):
-
-```go
-package main
-
-import (
-    "log"
-
-    "github.com/Fepozopo/gokit/update"
-)
-
-func main() {
-    currentVersion := "v0.1.0" // replace with actual version (set at build time)
-    repo := "owner/repo"       // replace with actual repo
-
-    // example hex public key(s) for signature verification; keep the seed private
-    trustedPubKeysHex := []string{"a3f1c2d4e5b6a7980f1e2d3c4b5a6978c9d0e1f2a3b4c5d6e7f8091a2b3c4d5e"}
-
-    res, err := update.CheckForUpdates(currentVersion, repo)
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    if !res.Available {
-        // The Err field contains sentinel errors callers may inspect,
-        // e.g. update.ErrNoReleases, update.ErrNoAsset, update.ErrMissingChecksums
-        if res.Err != nil {
-            log.Printf("no update available: %v", res.Err)
-        } else {
-            log.Println("already up-to-date")
-        }
-        return
-    }
-
-    // When `verify` is true the update will verify checksums.txt with the provided trusted public keys (recommended).
-    if err := update.Update(repo, res.Latest, true, trustedPubKeysHex); err != nil {
-        log.Fatalf("update failed: %v", err)
-    }
-}
-```
-
-Load a `.env` file into environment variables:
-
-```go
-import "github.com/Fepozopo/gokit/utils"
-
-if err := utils.LoadDotEnv(".env"); err != nil {
-    // handle error or ignore (LoadDotEnv returns an error if file can't be read)
-}
-```
-
----
-
-## Build & release workflow
+## Helpful scripts to build & release
 
 Note: `scripts/build-all.sh` builds each subdirectory under `cmd/` as a separate `package main` binary and writes outputs to `bin/`. Each `cmd/<name>` should be a `package main`. If no commands are present under `cmd/` the script exits with an error ("No commands found under cmd/ to build."). To build a single command manually use `go build ./cmd/<name>`.
 
