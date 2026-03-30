@@ -63,13 +63,17 @@ func pickFileDarwin(title string) (string, error) {
 	return path, nil
 }
 
+// isOsascriptCancel returns true if the given error corresponds to the
+// user cancelling the osascript file chooser. osascript returns exit code 1
+// when the user cancels the choose file dialog.
 func isOsascriptCancel(err error) bool {
-	// Can't inspect exit code portably from an error without type assertion,
-	// but in practice we treat any error as cancellation only when there's
-	// no stderr available (handled above). To be conservative, return false.
-	// The caller will receive a non-nil error in that case.
-	// (We keep this helper for clarity and possible future refinement.)
-	_ = err
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		// ExitCode==1 indicates cancel for osascript choose file
+		if ee.ExitCode() == 1 {
+			return true
+		}
+	}
 	return false
 }
 
