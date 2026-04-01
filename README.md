@@ -24,9 +24,10 @@ Requires Go 1.26+ (see `go.mod`).
 
 - [semver/](./semver/) — parse and compare semantic versions.
 - [update/](./update/) — helpers to detect releases on GitHub, verify signed `checksums.txt`, download artifacts and atomically replace the running executable.
-- [utils/](./utils/) — small utilities:
-  - [utils/file.go](./utils/file.go) — cross-platform file-picker (`OpenFilePicker`, `OpenFilesPicker`).
-  - [utils/dotenv.go](./utils/dotenv.go) — `.env` loader (`LoadDotEnv`).
+- [osutil/](./osutil/) — small OS-related utilities:
+  - [osutil/file.go](./osutil/file.go) — cross-platform file-picker (`OpenFilePicker`, `OpenFilesPicker`).
+  - [env/](./env/) — environment helpers (`LoadDotEnv`).
+  - [osutil/replace.go](./osutil/replace.go) — atomic file replacement helpers (`AtomicReplace`, `CopyFile`, `IsCrossDeviceErr`).
 - [scripts/](./scripts/) — build and signing helpers (`build-all.sh`, signing and key derivation tools).
 - [\_examples/](./_examples/) — runnable examples:
   - [\_examples/file_eg.go](./_examples/file_eg.go) — demonstrates the file picker helpers.
@@ -103,9 +104,9 @@ func main() {
 ### Load a `.env` file into environment variables
 
 ```go
-import "github.com/Fepozopo/gokit/utils"
+import "github.com/Fepozopo/gokit/env"
 
-if err := utils.LoadDotEnv(".env"); err != nil {
+if err := env.LoadDotEnv(".env"); err != nil {
     // handle error or ignore (LoadDotEnv returns an error if file can't be read)
 }
 ```
@@ -115,7 +116,7 @@ if err := utils.LoadDotEnv(".env"); err != nil {
 ## File picker utility
 
 A small, dependency-free helper that opens the system's native file picker and
-returns the selected path(s). The implementation is in `gokit/utils/file.go`.
+returns the selected path(s). The implementation is in `gokit/osutil/file.go`.
 
 Behavior by platform:
 
@@ -147,7 +148,7 @@ Notes / requirements:
 
 Helpful links
 
-- Implementation: [utils/file.go](./utils/file.go)
+- Implementation: [osutil/file.go](./osutil/file.go)
 - Example: [\_examples/file_eg.go](./_examples/file_eg.go)
 
 To run the included example:
@@ -192,6 +193,12 @@ Build artifacts:
 ```bash
 ./scripts/build-all.sh
 ```
+
+Notes on atomic replacement
+
+- The repository now provides `osutil.AtomicReplace`, `osutil.CopyFile` and `osutil.IsCrossDeviceErr` (see [osutil/replace.go](./osutil/replace.go)).
+- The `update` package was refactored to use `osutil.AtomicReplace` when installing updates; this centralizes cross-device fallback and reduces duplication.
+- Tests for the replace/copy helpers are included under `osutil/`.
 
 The build script writes `checksums.txt`. If `ed25519_seed.bin` exists the script will run the signer to produce `checksums.txt.sig` which is a single-line hex-encoded ed25519 signature over the checksums file. You can sign manually:
 
