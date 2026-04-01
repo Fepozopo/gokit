@@ -4,17 +4,16 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
-	"syscall"
 	"time"
+
+	"github.com/Fepozopo/gokit/osutil"
 )
 
 // defaultHTTPClient is used by helper download functions to ensure timeouts.
@@ -138,99 +137,10 @@ func downloadAndReplace(assetURL, destPath string, verify bool, expectedHex stri
 		}
 	}
 
-	// Preserve mode if destination exists; otherwise ensure executable bit for user
-	if fi, err := os.Stat(destPath); err == nil {
-		_ = os.Chmod(tmpName, fi.Mode())
-	} else {
-		_ = os.Chmod(tmpName, 0755)
-	}
-
-	// Attempt atomic rename
-	if err := os.Rename(tmpName, destPath); err != nil {
-		// cross-device fallback
-		if isCrossDeviceErr(err) {
-			if cerr := copyFile(tmpName, destPath); cerr != nil {
-				return fmt.Errorf("copy fallback failed: %w (rename err: %v)", cerr, err)
-			}
-			_ = os.Remove(tmpName)
-		} else if runtimeGOOS() == "windows" {
-			_ = os.Remove(destPath)
-			if rerr := os.Rename(tmpName, destPath); rerr != nil {
-				return fmt.Errorf("rename after remove failed: %w", rerr)
-			}
-		} else {
-			return fmt.Errorf("rename failed: %w", err)
-		}
-	}
-
-	// fsync containing directory (best-effort)
-	if dirf, err := os.Open(dir); err == nil {
-		_ = dirf.Sync()
-		_ = dirf.Close()
+	// Atomically replace destPath with the temp file.
+	if err := osutil.AtomicReplace(tmpName, destPath); err != nil {
+		return fmt.Errorf("replace failed: %w", err)
 	}
 
 	return nil
-}
-
-// copyFile copies a file from src to dst, preserving permissions.
-// Used as a fallback when atomic rename is not possible (e.g. cross-device).
-// Returns an error on failure.
-func copyFile(src, dst string) error {
-	sf, err := os.Open(src)
-	if err != nil {
-		return fmt.Errorf("open src failed: %w", err)
-	}
-	defer func() {
-		if cerr := sf.Close(); cerr != nil {
-			slog.Warn("close src failed", "src", src, "err", cerr)
-		}
-	}()
-	fi, err := os.Stat(src)
-	if err != nil {
-		return fmt.Errorf("stat src failed: %w", err)
-	}
-	df, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fi.Mode())
-	if err != nil {
-		return fmt.Errorf("open dst failed: %w", err)
-	}
-	defer func() {
-		if cerr := df.Close(); cerr != nil {
-			slog.Warn("close dst failed", "dst", dst, "err", cerr)
-		}
-	}()
-	if _, err := io.Copy(df, sf); err != nil {
-		return fmt.Errorf("copy failed: %w", err)
-	}
-	if err := df.Sync(); err != nil {
-		return fmt.Errorf("sync dst failed: %w", err)
-	}
-	return nil
-}
-
-// isCrossDeviceErr reports whether err represents a cross-device rename error (EXDEV).
-// It prefers typed comparison via errors.Is and falls back to inspecting an
-// *os.LinkError's underlying errno for portability across platforms.
-func isCrossDeviceErr(err error) bool {
-	if err == nil {
-		return false
-	}
-	// Fast path using errors.Is which understands wrapped errors.
-	if errors.Is(err, syscall.EXDEV) {
-		return true
-	}
-	// Inspect os.LinkError.Err in case the error is wrapped differently.
-	var lerr *os.LinkError
-	if errors.As(err, &lerr) {
-		if errno, ok := lerr.Err.(syscall.Errno); ok && errno == syscall.EXDEV {
-			return true
-		}
-	}
-	return false
-}
-
-func runtimeGOOS() string {
-	if v := os.Getenv("GOOS_OVERRIDE"); v != "" {
-		return v
-	}
-	return runtime.GOOS
 }

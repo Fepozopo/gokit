@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"syscall"
@@ -359,7 +360,7 @@ func Update(repo string, latest *Release, verify bool, trustedPubKeysHex []strin
 
 	// Attempt to restart the process by replacing the current process image on supported OSes.
 	argv := append([]string{exe}, os.Args[1:]...)
-	if runtimeGOOS() != "windows" {
+	if runtime.GOOS != "windows" {
 		if err := syscall.Exec(exe, argv, os.Environ()); err != nil {
 			// Exec only returns on error. Try a fallback of starting the new binary as a child process.
 			cmd := exec.Command(exe, os.Args[1:]...)

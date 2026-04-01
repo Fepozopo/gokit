@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/Fepozopo/gokit/utils"
+	"github.com/!fepozopo/gokit/osutil"
 )
 
 // Simple example program demonstrating the OpenFilePicker and OpenFilesPicker
-// helpers in the utils package.
+// helpers in the osutil package.
 //
 // Usage:
 //
@@ -19,7 +19,7 @@ import (
 // - If the user cancels the dialog, the functions return an empty result with a nil error.
 func main() {
 	fmt.Println("=== Example: OpenFilePicker (single file) ===")
-	sel, err := utils.OpenFilePicker("Select a file to open")
+	sel, err := osutil.OpenFilePicker("Select a file to open")
 	if err != nil {
 		log.Fatalf("OpenFilePicker error: %v", err)
 	}
@@ -31,7 +31,7 @@ func main() {
 
 	fmt.Println()
 	fmt.Println("=== Example: OpenFilesPicker (multiple files) ===")
-	multi, err := utils.OpenFilesPicker("Select one or more files")
+	multi, err := osutil.OpenFilesPicker("Select one or more files")
 	if err != nil {
 		log.Fatalf("OpenFilesPicker error: %v", err)
 	}
