@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/!fepozopo/gokit/osutil"
+	"github.com/Fepozopo/gokit/osutil"
 )
 
 // Simple example program demonstrating the OpenFilePicker and OpenFilesPicker
