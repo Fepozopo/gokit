@@ -293,8 +293,6 @@ func Update(repo string, latest *Release, verify bool, trustedPubKeysHex []strin
 	// Use shared doGetWithHeaders helper for HTTP GETs.
 
 	if verify {
-		slog.Info("verifying release checksums signature")
-
 		// Ensure checksums URLs are present
 		if latest.ChecksumsURL == "" || latest.ChecksumsSigURL == "" {
 			return fmt.Errorf("missing checksums or signature URL for release %s", latest.Version)
@@ -332,10 +330,7 @@ func Update(repo string, latest *Release, verify bool, trustedPubKeysHex []strin
 		if !ok || expected == "" {
 			return fmt.Errorf("no checksum entry found for asset %q in checksums.txt", latest.AssetName)
 		}
-
-		slog.Info("checksums signature valid; downloading and verifying artifact")
 	} else {
-		slog.Info("skipping checksum verification as requested")
 		// expected remains empty when verification is disabled
 		expected = ""
 	}
@@ -372,7 +367,6 @@ func Update(repo string, latest *Release, verify bool, trustedPubKeysHex []strin
 				return fmt.Errorf("updated to new version but failed to restart automatically: execErr=%v startErr=%v", err, startErr)
 			}
 			// Successfully started the new process; return to caller.
-			slog.Info("updated to version (started child process)", "version", latest.Version)
 			return nil
 		}
 	} else {
@@ -384,7 +378,6 @@ func Update(repo string, latest *Release, verify bool, trustedPubKeysHex []strin
 		if startErr := cmd.Start(); startErr != nil {
 			return fmt.Errorf("updated to new version but failed to restart automatically: startErr=%v", startErr)
 		}
-		slog.Info("updated to version (started child process on windows)", "version", latest.Version)
 		return nil
 	}
 
