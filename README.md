@@ -15,6 +15,7 @@ Requires Go 1.26+ (see `go.mod`).
   - [Parse a version and read a parsed signature](#parse-a-version-and-read-a-parsed-signature-if-present)
   - [Check for updates and apply them (basic pattern)](#check-for-updates-and-apply-them-basic-pattern)
   - [Load a `.env` file into environment variables](#load-a-env-file-into-environment-variables)
+  - [Copy text to the system clipboard](#copy-text-to-the-system-clipboard)
 - [File picker utility](#file-picker-utility)
 - [Build & release workflow](#build--release-workflow)
 - [Testing](#testing)
@@ -26,6 +27,7 @@ Requires Go 1.26+ (see `go.mod`).
 - [update/](./update/) — helpers to detect releases on GitHub, verify signed `checksums.txt`, download artifacts and atomically replace the running executable.
 - [osutil/](./osutil/) — small OS-related utilities:
   - [osutil/file.go](./osutil/file.go) — cross-platform file-picker (`OpenFilePicker`, `OpenFilesPicker`).
+  - [osutil/clipboard.go](./osutil/clipboard.go) — cross-platform clipboard helper (`CopyTextToClipboard`).
   - [env/](./env/) — environment helpers (`LoadDotEnv`).
   - [osutil/replace.go](./osutil/replace.go) — atomic file replacement helpers (`AtomicReplace`, `CopyFile`, `IsCrossDeviceErr`).
 - [scripts/](./scripts/) — build and signing helpers (`build-all.sh`, signing and key derivation tools).
@@ -111,6 +113,27 @@ if err := env.LoadDotEnv(".env"); err != nil {
 }
 ```
 
+### Copy text to the system clipboard
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+
+    "github.com/Fepozopo/gokit/osutil"
+)
+
+func main() {
+    text := "Hello from gokit!"
+    if err := osutil.CopyTextToClipboard(text); err != nil {
+        log.Fatalf("copy to clipboard failed: %v", err)
+    }
+    fmt.Println("Text copied to clipboard")
+}
+```
+
 ---
 
 ## File picker utility
@@ -145,11 +168,6 @@ Notes / requirements:
 - On macOS the AppleScript is passed via `osascript -e`. If you encounter issues
   with very long/complex scripts the implementation can be adjusted to write the
   AppleScript to a temporary file and call `osascript /tmp/script`.
-
-Helpful links
-
-- Implementation: [osutil/file.go](./osutil/file.go)
-- Example: [\_examples/file_eg.go](./_examples/file_eg.go)
 
 To run the included example:
 
