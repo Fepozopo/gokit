@@ -16,7 +16,7 @@ Requires Go 1.26+ (see `go.mod`).
   - [Check for updates and apply them (basic pattern)](#check-for-updates-and-apply-them-basic-pattern)
   - [Load a `.env` file into environment variables](#load-a-env-file-into-environment-variables)
   - [Copy text to the system clipboard](#copy-text-to-the-system-clipboard)
-- [File picker utility](#file-picker-utility)
+- [File/Directory selection utility](#file-picker-utility)
 - [Build & release workflow](#build--release-workflow)
 - [Testing](#testing)
 - [License](#license)
@@ -26,13 +26,13 @@ Requires Go 1.26+ (see `go.mod`).
 - [semver/](./semver/) — parse and compare semantic versions.
 - [update/](./update/) — helpers to detect releases on GitHub, verify signed `checksums.txt`, download artifacts and atomically replace the running executable.
 - [osutil/](./osutil/) — small OS-related utilities:
-  - [osutil/file.go](./osutil/file.go) — cross-platform file-picker (`OpenFilePicker`, `OpenFilesPicker`).
+  - [osutil/select.go](./osutil/select.go) — cross-platform selection helpers (`OpenFileSelection`, `OpenFilesSelection`, `OpenDirSelection`, `OpenDirsSelection`).
   - [osutil/clipboard.go](./osutil/clipboard.go) — cross-platform clipboard helper (`CopyTextToClipboard`).
   - [env/](./env/) — environment helpers (`LoadDotEnv`).
   - [osutil/replace.go](./osutil/replace.go) — atomic file replacement helpers (`AtomicReplace`, `CopyFile`, `IsCrossDeviceErr`).
 - [scripts/](./scripts/) — build and signing helpers (`build-all.sh`, signing and key derivation tools).
 - [\_examples/](./_examples/) — runnable examples:
-  - [\_examples/file_eg.go](./_examples/file_eg.go) — demonstrates the file picker helpers.
+  - [\_examples/select_eg.go](./_examples/select_eg.go) — demonstrates the selection helpers.
 
 ---
 
@@ -136,10 +136,10 @@ func main() {
 
 ---
 
-## File picker utility
+## File/Directory selection utility
 
 A small, dependency-free helper that opens the system's native file picker and
-returns the selected path(s). The implementation is in `gokit/osutil/file.go`.
+returns the selected path(s). The implementation is in `gokit/osutil/select.go`.
 
 Behavior by platform:
 
@@ -150,10 +150,15 @@ Behavior by platform:
 
 Exported helpers:
 
-- `OpenFilePicker(title string) (string, error)` — single-file picker. Returns an
+- `OpenFileSelection(title string) (string, error)` — single-file selection. Returns an
   empty string + nil error if the user cancels.
-- `OpenFilesPicker(title string) ([]string, error)` — multi-file picker. Returns
+- `OpenFilesSelection(title string) ([]string, error)` — multi-file selection. Returns
   an empty slice + nil error on cancel.
+
+- `OpenDirSelection(title string) (string, error)` — single-directory selection. Returns an
+  empty string + nil error if the user cancels.
+- `OpenDirsSelection(title string) ([]string, error)` — multi-directory selection. Returns an
+  empty slice + nil error on cancel.
 
 Notes / requirements:
 
@@ -162,7 +167,6 @@ Notes / requirements:
   - macOS: `osascript` (standard)
   - Windows: `powershell`
   - Linux: `zenity` or `kdialog`
-- If no GUI backend is present on Linux the code will prompt for paths on stdin.
 - Cancelling a dialog returns an empty result and a nil error (so callers can
   treat cancellation separately from real errors).
 - On macOS the AppleScript is passed via `osascript -e`. If you encounter issues
@@ -172,7 +176,7 @@ Notes / requirements:
 To run the included example:
 
 ```bash
-go run ./_examples/file_eg.go
+go run ./_examples/select_eg.go
 ```
 
 ---
