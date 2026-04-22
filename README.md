@@ -147,18 +147,19 @@ Behavior by platform:
 - Windows: uses PowerShell (`System.Windows.Forms.OpenFileDialog`).
 - Linux: tries `zenity`, then `kdialog`. If neither is available the package falls
   back to a console prompt.
+  If neither is available the helpers return osutil.ErrNoGUISelection (exported sentinel).
 
 Exported helpers:
 
 - `OpenFileSelection(title string) (string, error)` — single-file selection. Returns an
   empty string + nil error if the user cancels.
 - `OpenFilesSelection(title string) ([]string, error)` — multi-file selection. Returns
-  an empty slice + nil error on cancel.
+  a nil slice + nil error on cancel.
 
 - `OpenDirSelection(title string) (string, error)` — single-directory selection. Returns an
   empty string + nil error if the user cancels.
 - `OpenDirsSelection(title string) ([]string, error)` — multi-directory selection. Returns an
-  empty slice + nil error on cancel.
+  nil slice + nil error on cancel.
 
 Notes / requirements:
 
@@ -167,6 +168,7 @@ Notes / requirements:
   - macOS: `osascript` (standard)
   - Windows: `powershell`
   - Linux: `zenity` or `kdialog`
+- If no GUI helper is present on Linux the functions return `osutil.ErrNoGUISelection`, which callers can detect.
 - Cancelling a dialog returns an empty result and a nil error (so callers can
   treat cancellation separately from real errors).
 - On macOS the AppleScript is passed via `osascript -e`. If you encounter issues
