@@ -231,13 +231,11 @@ func isDigits(s string) bool {
 
 // isNumericNoLeadingZeros returns true if s is "0" or does not start with '0'.
 func isNumericNoLeadingZeros(s string) bool {
-	if s == "" {
-		return false
-	}
-	if s == "0" {
-		return true
-	}
-	return !(len(s) > 1 && s[0] == '0')
+    if s == "" {
+        return false
+    }
+    // allowed: single "0"; otherwise the first byte must not be '0'
+    return s == "0" || s[0] != '0'
 }
 
 // isValidPrereleaseIdent returns true if the identifier contains only

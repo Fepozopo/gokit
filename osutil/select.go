@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -297,18 +296,6 @@ func selectFilesLinux(title string) ([]string, error) {
 	return nil, ErrNoGUISelection
 }
 
-// splitNuls splits a string by NUL (0) bytes and trims whitespace.
-func splitNuls(s string) []string {
-	var parts []string
-	for _, p := range strings.Split(s, string(rune(0))) {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			parts = append(parts, p)
-		}
-	}
-	return parts
-}
-
 // -------------------- Directory selection functions --------------------
 
 // OpenDirSelection shows a dialog to pick a single directory.
@@ -544,33 +531,4 @@ func selectDirsLinux(title string) ([]string, error) {
 		return parts, nil
 	}
 	return nil, ErrNoGUISelection
-}
-
-// OpenFileSelectionOrFatal is a convenience for scripts where you want the
-// selected file path or a fatal error. It returns the path or exits the process.
-func OpenFileSelectionOrFatal(title string) string {
-	p, err := OpenFileSelection(title)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "file selection failed: %v\n", err)
-		os.Exit(2)
-	}
-	if p == "" {
-		fmt.Fprintln(os.Stderr, "no file selected")
-		os.Exit(0)
-	}
-	return p
-}
-
-// OpenDirSelectionOrFatal is a convenience that exits on error or no selection.
-func OpenDirSelectionOrFatal(title string) string {
-	p, err := OpenDirSelection(title)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "directory selection failed: %v\n", err)
-		os.Exit(2)
-	}
-	if p == "" {
-		fmt.Fprintln(os.Stderr, "no directory selected")
-		os.Exit(0)
-	}
-	return p
 }
