@@ -6,18 +6,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"log/slog"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/Fepozopo/gokit/osutil"
 )
-
-// defaultHTTPClient is used by helper download functions to ensure timeouts.
-var defaultHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 // verifyChecksumsSignature verifies the hex-encoded signature sigHex over the
 // checksums bytes ck using any of the trustedPubKeys (hex decoded). Returns
@@ -56,7 +50,6 @@ func parseChecksums(ck []byte) map[string]string {
 		if l == "" || strings.HasPrefix(l, "#") {
 			continue
 		}
-		// allow either two spaces or a single space separator
 		var parts []string
 		if strings.Contains(l, "  ") {
 			parts = strings.SplitN(l, "  ", 2)
@@ -78,16 +71,13 @@ func parseChecksums(ck []byte) map[string]string {
 // If verify is true, it computes the SHA256 of the download and compares it to
 // expectedHex before performing the replacement.
 func downloadAndReplace(assetURL, destPath string, verify bool, expectedHex string) error {
-	resp, err := defaultHTTPClient.Get(assetURL)
+	resp, err := doGet(defaultHTTPClient, assetURL, nil)
 	if err != nil {
 		return fmt.Errorf("download failed: %w", err)
 	}
-	defer func() {
-		if cerr := resp.Body.Close(); cerr != nil {
-			slog.Warn("download response body close failed", "url", assetURL, "err", cerr)
-		}
-	}()
-	if resp.StatusCode != http.StatusOK {
+	defer closeResponseBody(resp, assetURL)
+
+	if resp.StatusCode != 200 {
 		b, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("download returned status %d: %s", resp.StatusCode, string(b))
 	}
@@ -98,25 +88,19 @@ func downloadAndReplace(assetURL, destPath string, verify bool, expectedHex stri
 		return fmt.Errorf("create temp: %w", err)
 	}
 	tmpName := tmpFile.Name()
-	// ensure cleanup on failure
 	defer func() {
 		_ = tmpFile.Close()
 		_ = os.Remove(tmpName)
 	}()
 
-	// Stream download into temp file; optionally compute hash while streaming.
-	var hasher io.Writer
 	var shaSum []byte
 	if verify {
 		h := sha256.New()
-		hasher = h
-		// copy into both temp file and hasher
-		if _, err := io.Copy(io.MultiWriter(tmpFile, hasher), resp.Body); err != nil {
+		if _, err := io.Copy(io.MultiWriter(tmpFile, h), resp.Body); err != nil {
 			return fmt.Errorf("write temp: %w", err)
 		}
 		shaSum = h.Sum(nil)
 	} else {
-		// just write to temp file
 		if _, err := io.Copy(tmpFile, resp.Body); err != nil {
 			return fmt.Errorf("write temp: %w", err)
 		}
@@ -129,7 +113,6 @@ func downloadAndReplace(assetURL, destPath string, verify bool, expectedHex stri
 		return fmt.Errorf("close temp: %w", err)
 	}
 
-	// If verification requested, compare computed hash with expected.
 	if verify {
 		got := fmt.Sprintf("%x", shaSum)
 		if !strings.EqualFold(got, strings.TrimSpace(expectedHex)) {
@@ -137,10 +120,8 @@ func downloadAndReplace(assetURL, destPath string, verify bool, expectedHex stri
 		}
 	}
 
-	// Atomically replace destPath with the temp file.
 	if err := osutil.AtomicReplace(tmpName, destPath); err != nil {
 		return fmt.Errorf("replace failed: %w", err)
 	}
-
 	return nil
 }

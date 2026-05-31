@@ -90,7 +90,8 @@ func main() {
 
     if !res.Available {
         // The Err field contains sentinel errors callers may inspect,
-        // e.g. update.ErrNoReleases, update.ErrNoAsset, update.ErrMissingChecksums
+        // e.g. update.ErrNoReleases, update.ErrNoAsset, update.ErrNoPlatformAsset,
+        // and update.ErrMissingChecksums
         if res.Err != nil {
             log.Printf("no update available: %v", res.Err)
         } else {
@@ -222,8 +223,10 @@ go run scripts/derive_pub/derive_pub.go "$SEED_B64"
 Notes on update checking:
 
 - `CheckForUpdates` returns an `UpdateCheckResult` with fields `Available`, `Latest`, and `Err`.
-- Inspect `UpdateCheckResult.Err` for programmatic hints (sentinel errors exported from the `update` package): `ErrNoReleases`, `ErrNoAsset`, `ErrMissingChecksums`, and `ErrCurrentVersionInvalid`.
-- The update code honors the `GITHUB_TOKEN` environment variable for authenticated requests. Export a token to increase rate limits or to access private releases:
+- Inspect `UpdateCheckResult.Err` for programmatic hints (sentinel errors exported from the `update` package): `ErrNoReleases`, `ErrNoAsset`, `ErrNoPlatformAsset`, `ErrMissingChecksums`, and `ErrCurrentVersionInvalid`.
+- Release asset selection is matched against the current executable name plus the current `GOOS`/`GOARCH`. If a release has assets but none match the current executable/platform, `CheckForUpdates` returns `ErrNoPlatformAsset` instead of guessing.
+- The updater currently expects direct executable assets, not archives such as `.zip` or `.tar.gz`.
+- The update code honors the `GITHUB_TOKEN` environment variable for authenticated requests, including asset downloads. Export a token to increase rate limits or to access private releases:
 
 ```bash
 export GITHUB_TOKEN="ghp_..."
@@ -233,6 +236,7 @@ Notes on atomic replacement:
 
 - The repository provides `osutil.AtomicReplace`, `osutil.CopyFile`, and `osutil.IsCrossDeviceErr` (see [osutil/replace.go](./osutil/replace.go)).
 - The `update` package uses `osutil.AtomicReplace` when installing updates; this centralizes cross-device fallback and reduces duplication.
+- On Windows, replacing the running executable remains best-effort. Callers should be prepared for a retry/manual restart path if the running `.exe` is locked by the OS.
 - Tests for the replace/copy helpers are included under `osutil/`.
 
 The build helper writes `checksums.txt`. If `ed25519_seed.bin` exists, it can run the signer to produce `checksums.txt.sig`, which is a single-line hex-encoded ed25519 signature over the checksums file. You can sign manually:
