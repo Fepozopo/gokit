@@ -1,38 +1,44 @@
 package osutil
 
 import (
-    "fmt"
-    "os/exec"
-    "runtime"
-    "strings"
+	"fmt"
+	"os/exec"
+	"strings"
 )
 
-// CopyTextToClipboard detects the OS and executes the native clipboard command
+// CopyTextToClipboard detects the OS and executes the native clipboard command.
 func CopyTextToClipboard(text string) error {
-    var cmd *exec.Cmd
+	cmd, err := clipboardCommand()
+	if err != nil {
+		return err
+	}
+	cmd.Stdin = strings.NewReader(text)
+	return cmd.Run()
+}
 
-    switch runtime.GOOS {
-    case "darwin":
-        cmd = exec.Command("pbcopy")
-    case "windows":
-        cmd = exec.Command("clip")
-    case "linux":
-        // Linux (requires xclip or wl-copy)
-        // We try xclip first (X11), common on most distros
-        if _, err := exec.LookPath("xclip"); err == nil {
-            cmd = exec.Command("xclip", "-selection", "clipboard")
-        } else if _, err := exec.LookPath("wl-copy"); err == nil {
-            // Fallback for Wayland
-            cmd = exec.Command("wl-copy")
-        } else {
-            return fmt.Errorf("no clipboard utility found (install xclip or wl-copy)")
-        }
-    default:
-        return fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
-    }
+func clipboardCommand() (*exec.Cmd, error) {
+	name, args, err := clipboardCommandSpec(currentGOOS)
+	if err != nil {
+		return nil, err
+	}
+	return commandExec(name, args...), nil
+}
 
-    // Use a Reader for stdin and let cmd.Run manage process start/wait/cleanup.
-    // This avoids leaking the child process or pipe if a write fails.
-    cmd.Stdin = strings.NewReader(text)
-    return cmd.Run()
+func clipboardCommandSpec(goos string) (string, []string, error) {
+	switch goos {
+	case "darwin":
+		return "pbcopy", nil, nil
+	case "windows":
+		return "clip", nil, nil
+	case "linux":
+		if hasCommand("xclip") {
+			return "xclip", []string{"-selection", "clipboard"}, nil
+		}
+		if hasCommand("wl-copy") {
+			return "wl-copy", nil, nil
+		}
+		return "", nil, fmt.Errorf("no clipboard utility found (install xclip or wl-copy)")
+	default:
+		return "", nil, fmt.Errorf("unsupported operating system: %s", goos)
+	}
 }
