@@ -5,6 +5,7 @@ import (
 	"testing"
 )
 
+// setOSUtilTestGlobals swaps package-level test seams and restores them when the test ends.
 func setOSUtilTestGlobals(t *testing.T, goos string, lookPath func(string) (string, error), cmd func(string, ...string) *exec.Cmd) {
 	t.Helper()
 	oldGOOS := currentGOOS
@@ -26,6 +27,8 @@ func setOSUtilTestGlobals(t *testing.T, goos string, lookPath func(string) (stri
 	})
 }
 
+// TestParseSelectionListHandlesNewlinesAndPipes verifies selection parsing accepts
+// both newline- and pipe-delimited helper output.
 func TestParseSelectionListHandlesNewlinesAndPipes(t *testing.T) {
 	cases := []struct {
 		name string
@@ -52,6 +55,8 @@ func TestParseSelectionListHandlesNewlinesAndPipes(t *testing.T) {
 	}
 }
 
+// TestLinuxSelectionBackendPrefersZenityThenKDialog verifies backend discovery
+// prefers zenity and otherwise falls back to kdialog.
 func TestLinuxSelectionBackendPrefersZenityThenKDialog(t *testing.T) {
 	setOSUtilTestGlobals(t, "linux", func(name string) (string, error) {
 		switch name {
@@ -79,6 +84,8 @@ func TestLinuxSelectionBackendPrefersZenityThenKDialog(t *testing.T) {
 	}
 }
 
+// TestSelectFileLinuxReturnsErrNoGUISelectionWhenNoBackendExists verifies Linux
+// selection fails with ErrNoGUISelection when no GUI helper is installed.
 func TestSelectFileLinuxReturnsErrNoGUISelectionWhenNoBackendExists(t *testing.T) {
 	setOSUtilTestGlobals(t, "linux", func(string) (string, error) {
 		return "", exec.ErrNotFound
@@ -90,6 +97,8 @@ func TestSelectFileLinuxReturnsErrNoGUISelectionWhenNoBackendExists(t *testing.T
 	}
 }
 
+// TestSelectFilesLinuxParsesZenityPipeSeparatedOutput verifies the Linux parser
+// tolerates zenity-style output represented with pipe separators.
 func TestSelectFilesLinuxParsesZenityPipeSeparatedOutput(t *testing.T) {
 	setOSUtilTestGlobals(t, "linux", func(name string) (string, error) {
 		if name == "zenity" {
@@ -115,6 +124,8 @@ func TestSelectFilesLinuxParsesZenityPipeSeparatedOutput(t *testing.T) {
 	}
 }
 
+// TestSelectFileLinuxTreatsEmptyErrorOutputAsCancel verifies an empty failing
+// helper result is normalized to a user cancellation.
 func TestSelectFileLinuxTreatsEmptyErrorOutputAsCancel(t *testing.T) {
 	setOSUtilTestGlobals(t, "linux", func(name string) (string, error) {
 		if name == "zenity" {

@@ -13,9 +13,7 @@ import (
 	"github.com/Fepozopo/gokit/osutil"
 )
 
-// verifyChecksumsSignature verifies the hex-encoded signature sigHex over the
-// checksums bytes ck using any of the trustedPubKeys (hex decoded). Returns
-// nil on success.
+// verifyChecksumsSignature verifies the detached checksum signature against the raw checksums file.
 func verifyChecksumsSignature(ck []byte, sigHex string, trustedPubKeysHex []string) error {
 	sig, err := hex.DecodeString(strings.TrimSpace(sigHex))
 	if err != nil {
@@ -40,8 +38,7 @@ func verifyChecksumsSignature(ck []byte, sigHex string, trustedPubKeysHex []stri
 	return fmt.Errorf("checksums signature verification failed")
 }
 
-// parseChecksums parses a checksums.txt file in format "<hex><two spaces><filename>\n"
-// and returns a map filename->hex. Lines starting with '#' or empty lines are ignored.
+// parseChecksums parses a checksums.txt file into a filename-to-hash map.
 func parseChecksums(ck []byte) map[string]string {
 	out := make(map[string]string)
 	lines := strings.Split(string(ck), "\n")
@@ -51,6 +48,8 @@ func parseChecksums(ck []byte) map[string]string {
 			continue
 		}
 		var parts []string
+		// Support the common "hash<two spaces>file" format while remaining tolerant
+		// of checksum files that separate fields with generic whitespace.
 		if strings.Contains(l, "  ") {
 			parts = strings.SplitN(l, "  ", 2)
 		} else {
@@ -66,10 +65,7 @@ func parseChecksums(ck []byte) map[string]string {
 	return out
 }
 
-// downloadAndReplace downloads assetURL to a temporary file in the same directory
-// as destPath and then atomically replaces destPath with the downloaded file.
-// If verify is true, it computes the SHA256 of the download and compares it to
-// expectedHex before performing the replacement.
+// downloadAndReplace downloads an asset to a sibling temp file and atomically replaces destPath.
 func downloadAndReplace(assetURL, destPath string, verify bool, expectedHex string) error {
 	resp, err := doGet(defaultHTTPClient, assetURL, nil)
 	if err != nil {
@@ -96,6 +92,8 @@ func downloadAndReplace(assetURL, destPath string, verify bool, expectedHex stri
 	var shaSum []byte
 	if verify {
 		h := sha256.New()
+		// Hash while streaming into the temp file so the verified bytes are exactly
+		// the bytes that would be installed if replacement succeeds.
 		if _, err := io.Copy(io.MultiWriter(tmpFile, h), resp.Body); err != nil {
 			return fmt.Errorf("write temp: %w", err)
 		}

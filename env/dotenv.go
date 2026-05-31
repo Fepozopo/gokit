@@ -21,6 +21,7 @@ type ParseError struct {
 	Err  error
 }
 
+// Error returns the formatted parse error message.
 func (e *ParseError) Error() string {
 	if e == nil {
 		return "<nil>"
@@ -28,6 +29,7 @@ func (e *ParseError) Error() string {
 	return fmt.Sprintf("dotenv parse error on line %d: %v", e.Line, e.Err)
 }
 
+// Unwrap returns the underlying parse error.
 func (e *ParseError) Unwrap() error {
 	if e == nil {
 		return nil
@@ -70,6 +72,7 @@ func LoadDotEnvWithOptions(path string, opts LoadOptions) error {
 	return nil
 }
 
+// parseDotEnvLine parses a single dotenv line into a key and value.
 func parseDotEnvLine(raw string) (key, val string, ok bool, err error) {
 	line := strings.TrimSpace(raw)
 	if line == "" || strings.HasPrefix(line, "#") {
@@ -97,6 +100,8 @@ func parseDotEnvLine(raw string) (key, val string, ok bool, err error) {
 	return key, val, true, nil
 }
 
+// trimExportPrefix removes a leading export directive when it is followed by
+// whitespace.
 func trimExportPrefix(line string) (string, bool) {
 	if !strings.HasPrefix(line, "export") {
 		return line, false
@@ -104,12 +109,14 @@ func trimExportPrefix(line string) (string, bool) {
 	if len(line) == len("export") {
 		return line, false
 	}
+	// Require whitespace after export so keys like "exported" are left intact.
 	if !unicode.IsSpace(rune(line[len("export")])) {
 		return line, false
 	}
 	return strings.TrimSpace(line[len("export"):]), true
 }
 
+// validateDotEnvKey reports whether key is a valid dotenv variable name.
 func validateDotEnvKey(key string) error {
 	if key == "" {
 		return fmt.Errorf("empty key")
@@ -125,6 +132,7 @@ func validateDotEnvKey(key string) error {
 	return nil
 }
 
+// parseDotEnvValue parses the value portion of a dotenv assignment.
 func parseDotEnvValue(raw string) (string, error) {
 	trimmedLeft := strings.TrimLeftFunc(raw, unicode.IsSpace)
 	if trimmedLeft == "" {
@@ -146,6 +154,7 @@ func parseDotEnvValue(raw string) (string, error) {
 	}
 }
 
+// parseSingleQuotedValue parses a single-quoted dotenv value.
 func parseSingleQuotedValue(raw string) (string, error) {
 	end := strings.Index(raw[1:], "'")
 	if end < 0 {
@@ -158,6 +167,8 @@ func parseSingleQuotedValue(raw string) (string, error) {
 	return value, nil
 }
 
+// parseDoubleQuotedValue parses a double-quoted dotenv value and resolves the
+// supported escape sequences.
 func parseDoubleQuotedValue(raw string) (string, error) {
 	var b strings.Builder
 	for i := 1; i < len(raw); i++ {
@@ -193,6 +204,7 @@ func parseDoubleQuotedValue(raw string) (string, error) {
 	return "", fmt.Errorf("unterminated double-quoted value")
 }
 
+// validateQuotedTrailing validates the content that follows a quoted value.
 func validateQuotedTrailing(raw string) error {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
@@ -201,11 +213,15 @@ func validateQuotedTrailing(raw string) error {
 	return fmt.Errorf("unexpected trailing content after quoted value")
 }
 
+// parseUnquotedValue parses an unquoted dotenv value and strips inline
+// comments when they are introduced by whitespace.
 func parseUnquotedValue(raw string) string {
 	for i := 0; i < len(raw); i++ {
 		if raw[i] != '#' {
 			continue
 		}
+		// Treat # as an inline comment only when it is separated from the value
+		// by whitespace so literals like "#not-a-comment" are preserved.
 		if i > 0 && unicode.IsSpace(rune(raw[i-1])) {
 			return strings.TrimSpace(raw[:i])
 		}

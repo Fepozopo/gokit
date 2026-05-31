@@ -10,6 +10,8 @@ import (
 	"github.com/Fepozopo/gokit/osutil"
 )
 
+// TestCopyFilePreservesModeAndContent verifies CopyFile preserves both content
+// and permission bits.
 func TestCopyFilePreservesModeAndContent(t *testing.T) {
 	td := t.TempDir()
 
@@ -46,6 +48,8 @@ func TestCopyFilePreservesModeAndContent(t *testing.T) {
 	}
 }
 
+// TestAtomicReplaceWithExistingDestPreservesMode verifies AtomicReplace keeps
+// the destination mode when replacing an existing file.
 func TestAtomicReplaceWithExistingDestPreservesMode(t *testing.T) {
 	td := t.TempDir()
 
@@ -90,6 +94,8 @@ func TestAtomicReplaceWithExistingDestPreservesMode(t *testing.T) {
 	}
 }
 
+// TestAtomicReplaceWhenDestMissingSetsExecBit verifies AtomicReplace applies
+// the package's default executable mode when the destination does not exist.
 func TestAtomicReplaceWhenDestMissingSetsExecBit(t *testing.T) {
 	td := t.TempDir()
 
@@ -120,25 +126,27 @@ func TestAtomicReplaceWhenDestMissingSetsExecBit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat dest: %v", err)
 	}
-	// When destination did not exist, AtomicReplace sets user-exec bit (0o755)
+	// When destination did not exist, AtomicReplace sets user-exec bit (0o755).
 	if fi.Mode().Perm() != 0o755 {
 		t.Fatalf("mode mismatch for new dest: got %04o want %04o", fi.Mode().Perm(), 0o755)
 	}
 }
 
+// TestIsCrossDeviceErr verifies IsCrossDeviceErr recognizes EXDEV through both
+// direct and wrapped errors.
 func TestIsCrossDeviceErr(t *testing.T) {
-	// Direct syscall.EXDEV should be recognized
+	// Direct syscall.EXDEV should be recognized.
 	if !osutil.IsCrossDeviceErr(syscall.EXDEV) {
 		t.Fatalf("expected EXDEV to be recognized as cross-device error")
 	}
 
-	// An *os.LinkError wrapping EXDEV should be recognized
+	// An *os.LinkError wrapping EXDEV should be recognized.
 	lerr := &os.LinkError{Op: "rename", Old: "a", New: "b", Err: syscall.EXDEV}
 	if !osutil.IsCrossDeviceErr(lerr) {
 		t.Fatalf("expected LinkError(EXDEV) to be recognized as cross-device error")
 	}
 
-	// A random error must not be recognized
+	// A random error must not be recognized.
 	if osutil.IsCrossDeviceErr(errors.New("not exdev")) {
 		t.Fatalf("unexpectedly recognized unrelated error as cross-device")
 	}

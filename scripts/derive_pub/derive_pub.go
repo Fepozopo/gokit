@@ -10,12 +10,13 @@ import (
 	"strings"
 )
 
+// main derives an Ed25519 public key from a base64-encoded private seed.
 func main() {
 	var b64 string
 	if len(os.Args) >= 2 && strings.TrimSpace(os.Args[1]) != "-" {
 		b64 = os.Args[1]
 	} else {
-		// read from stdin
+		// Fall back to stdin so the seed can be piped in instead of passed on the command line.
 		b, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "failed reading stdin:", err)

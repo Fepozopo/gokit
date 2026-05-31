@@ -18,12 +18,15 @@ import (
 	"github.com/Fepozopo/gokit/semver"
 )
 
+// roundTripperFunc adapts a function to implement http.RoundTripper in tests.
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
+// RoundTrip executes f for req.
 func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
 
+// rewriteGitHubClient returns an HTTP client that rewrites GitHub URLs to the test server.
 func rewriteGitHubClient(t *testing.T, server *httptest.Server) *http.Client {
 	t.Helper()
 
@@ -44,6 +47,7 @@ func rewriteGitHubClient(t *testing.T, server *httptest.Server) *http.Client {
 	}
 }
 
+// setUpdateTestGlobals overrides package-level globals for tests and restores them on cleanup.
 func setUpdateTestGlobals(t *testing.T, goos, goarch, exe string, client *http.Client) {
 	t.Helper()
 
@@ -69,6 +73,7 @@ func setUpdateTestGlobals(t *testing.T, goos, goarch, exe string, client *http.C
 	})
 }
 
+// TestSelectReleaseAssetPrefersExactExecutableAndPlatform verifies exact asset matches win over other candidates.
 func TestSelectReleaseAssetPrefersExactExecutableAndPlatform(t *testing.T) {
 	assets := []githubReleaseAsset{
 		{Name: "worker-linux-amd64", BrowserDownloadURL: "https://example.invalid/worker-linux-amd64"},
@@ -86,6 +91,7 @@ func TestSelectReleaseAssetPrefersExactExecutableAndPlatform(t *testing.T) {
 	}
 }
 
+// TestSelectReleaseAssetDoesNotGuessDifferentExecutable verifies mismatched executable names are rejected.
 func TestSelectReleaseAssetDoesNotGuessDifferentExecutable(t *testing.T) {
 	assets := []githubReleaseAsset{
 		{Name: "worker-linux-amd64", BrowserDownloadURL: "https://example.invalid/worker-linux-amd64"},
@@ -100,33 +106,34 @@ func TestSelectReleaseAssetDoesNotGuessDifferentExecutable(t *testing.T) {
 	}
 }
 
+// TestDetectLatestReleaseUsesGithubTokenAndSelectsLatestStableMatchingAsset verifies auth and release selection behavior.
 func TestDetectLatestReleaseUsesGithubTokenAndSelectsLatestStableMatchingAsset(t *testing.T) {
 	var authHeader string
 
 	releasesJSON := `[
-			{
-				"tag_name": "v2.0.0-beta.1",
-				"prerelease": true,
-				"assets": [
-					{"name": "myapp-linux-amd64", "browser_download_url": "https://example.invalid/prerelease-bin"}
-				]
-			},
-			{
-				"tag_name": "v1.10.0",
-				"assets": [
-					{"name": "worker-linux-amd64", "browser_download_url": "https://example.invalid/worker-linux-amd64"},
-					{"name": "myapp-linux-amd64", "browser_download_url": "https://example.invalid/myapp-linux-amd64"},
-					{"name": "checksums.txt", "browser_download_url": "https://example.invalid/checksums.txt"},
-					{"name": "checksums.txt.sig", "browser_download_url": "https://example.invalid/checksums.txt.sig"}
-				]
-			},
-			{
-				"tag_name": "v1.9.0",
-				"assets": [
-					{"name": "myapp-linux-amd64", "browser_download_url": "https://example.invalid/myapp-1.9.0-linux-amd64"}
-				]
-			}
-		]`
+				{
+					"tag_name": "v2.0.0-beta.1",
+					"prerelease": true,
+					"assets": [
+						{"name": "myapp-linux-amd64", "browser_download_url": "https://example.invalid/prerelease-bin"}
+					]
+				},
+				{
+					"tag_name": "v1.10.0",
+					"assets": [
+						{"name": "worker-linux-amd64", "browser_download_url": "https://example.invalid/worker-linux-amd64"},
+						{"name": "myapp-linux-amd64", "browser_download_url": "https://example.invalid/myapp-linux-amd64"},
+						{"name": "checksums.txt", "browser_download_url": "https://example.invalid/checksums.txt"},
+						{"name": "checksums.txt.sig", "browser_download_url": "https://example.invalid/checksums.txt.sig"}
+					]
+				},
+				{
+					"tag_name": "v1.9.0",
+					"assets": [
+						{"name": "myapp-linux-amd64", "browser_download_url": "https://example.invalid/myapp-1.9.0-linux-amd64"}
+					]
+				}
+			]`
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader = r.Header.Get("Authorization")
 		if r.URL.Path != "/repos/owner/repo/releases" {
@@ -160,17 +167,18 @@ func TestDetectLatestReleaseUsesGithubTokenAndSelectsLatestStableMatchingAsset(t
 	}
 }
 
+// TestCheckForUpdatesReturnsErrNoPlatformAsset verifies platform mismatches are surfaced explicitly.
 func TestCheckForUpdatesReturnsErrNoPlatformAsset(t *testing.T) {
 	releasesJSON := `[
-			{
-				"tag_name": "v1.2.0",
-				"assets": [
-					{"name": "worker-linux-amd64", "browser_download_url": "https://example.invalid/worker-linux-amd64"},
-					{"name": "checksums.txt", "browser_download_url": "https://example.invalid/checksums.txt"},
-					{"name": "checksums.txt.sig", "browser_download_url": "https://example.invalid/checksums.txt.sig"}
-				]
-			}
-		]`
+				{
+					"tag_name": "v1.2.0",
+					"assets": [
+						{"name": "worker-linux-amd64", "browser_download_url": "https://example.invalid/worker-linux-amd64"},
+						{"name": "checksums.txt", "browser_download_url": "https://example.invalid/checksums.txt"},
+						{"name": "checksums.txt.sig", "browser_download_url": "https://example.invalid/checksums.txt.sig"}
+					]
+				}
+			]`
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/repos/owner/repo/releases" {
 			t.Fatalf("unexpected request path: %s", r.URL.Path)
@@ -193,6 +201,7 @@ func TestCheckForUpdatesReturnsErrNoPlatformAsset(t *testing.T) {
 	}
 }
 
+// TestExpectedChecksumForReleaseVerifiesSignatureAndUsesAuth verifies signed checksum lookup uses authenticated requests.
 func TestExpectedChecksumForReleaseVerifiesSignatureAndUsesAuth(t *testing.T) {
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -245,6 +254,7 @@ func TestExpectedChecksumForReleaseVerifiesSignatureAndUsesAuth(t *testing.T) {
 	}
 }
 
+// TestExpectedChecksumForReleaseFailsInvalidSignature verifies invalid checksum signatures are rejected.
 func TestExpectedChecksumForReleaseFailsInvalidSignature(t *testing.T) {
 	_, goodPriv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -289,6 +299,7 @@ func TestExpectedChecksumForReleaseFailsInvalidSignature(t *testing.T) {
 	}
 }
 
+// TestDownloadAndReplaceUsesAuthForAssetDownloads verifies asset downloads inherit GitHub token auth.
 func TestDownloadAndReplaceUsesAuthForAssetDownloads(t *testing.T) {
 	assetBody := []byte("downloaded binary")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -319,6 +330,7 @@ func TestDownloadAndReplaceUsesAuthForAssetDownloads(t *testing.T) {
 	}
 }
 
+// TestDownloadAndReplaceRejectsChecksumMismatch verifies checksum validation fails before replacement.
 func TestDownloadAndReplaceRejectsChecksumMismatch(t *testing.T) {
 	assetBody := []byte("downloaded binary")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

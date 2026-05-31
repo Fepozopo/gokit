@@ -10,6 +10,7 @@ import (
 	"strings"
 )
 
+// loadSeedFromFile loads an Ed25519 seed from a raw 32-byte file or base64 text.
 func loadSeedFromFile(path string) ([]byte, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -28,6 +29,7 @@ func loadSeedFromFile(path string) ([]byte, error) {
 	return seed, nil
 }
 
+// main signs a checksum file with an Ed25519 private key derived from a seed file.
 func main() {
 	// Usage: sign_checksums <checksums.txt> <seed_file>
 	if len(os.Args) < 3 {

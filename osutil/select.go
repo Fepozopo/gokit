@@ -23,6 +23,7 @@ func OpenFileSelection(title string) (string, error) {
 	case "linux":
 		return selectFileLinux(title)
 	default:
+		// Unknown platforms reuse the Linux helper path as a best-effort fallback.
 		return selectFileLinux(title)
 	}
 }
@@ -38,6 +39,7 @@ func OpenFilesSelection(title string) ([]string, error) {
 	case "linux":
 		return selectFilesLinux(title)
 	default:
+		// Unknown platforms reuse the Linux helper path as a best-effort fallback.
 		return selectFilesLinux(title)
 	}
 }
@@ -53,6 +55,7 @@ func OpenDirSelection(title string) (string, error) {
 	case "linux":
 		return selectDirLinux(title)
 	default:
+		// Unknown platforms reuse the Linux helper path as a best-effort fallback.
 		return selectDirLinux(title)
 	}
 }
@@ -68,6 +71,7 @@ func OpenDirsSelection(title string) ([]string, error) {
 	case "linux":
 		return selectDirsLinux(title)
 	default:
+		// Unknown platforms reuse the Linux helper path as a best-effort fallback.
 		return selectDirsLinux(title)
 	}
 }

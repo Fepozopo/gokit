@@ -8,6 +8,7 @@ import (
 	"testing"
 )
 
+// writeDotEnvFile writes content to a temporary .env file and returns its path.
 func writeDotEnvFile(t *testing.T, content string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), ".env")
@@ -17,6 +18,7 @@ func writeDotEnvFile(t *testing.T, content string) string {
 	return path
 }
 
+// preserveEnv restores the original values for keys after the test completes.
 func preserveEnv(t *testing.T, keys ...string) {
 	t.Helper()
 	original := make(map[string]*string, len(keys))
@@ -37,6 +39,7 @@ func preserveEnv(t *testing.T, keys ...string) {
 	})
 }
 
+// TestLoadDotEnvSupportsCommonSyntax verifies the supported dotenv syntax.
 func TestLoadDotEnvSupportsCommonSyntax(t *testing.T) {
 	const (
 		keyPlain       = "GOKIT_ENV_TEST_PLAIN"
@@ -73,6 +76,8 @@ func TestLoadDotEnvSupportsCommonSyntax(t *testing.T) {
 	assertEnvValue(t, keyHashLiteral, "#not-a-comment")
 }
 
+// TestLoadDotEnvDoesNotOverrideExistingByDefault verifies that existing
+// environment variables are preserved unless override is explicitly enabled.
 func TestLoadDotEnvDoesNotOverrideExistingByDefault(t *testing.T) {
 	const key = "GOKIT_ENV_TEST_NO_OVERRIDE"
 	preserveEnv(t, key)
@@ -86,6 +91,8 @@ func TestLoadDotEnvDoesNotOverrideExistingByDefault(t *testing.T) {
 	assertEnvValue(t, key, "already-set")
 }
 
+// TestLoadDotEnvWithOptionsCanOverrideExisting verifies that override behavior
+// is applied when LoadOptions requests it.
 func TestLoadDotEnvWithOptionsCanOverrideExisting(t *testing.T) {
 	const key = "GOKIT_ENV_TEST_OVERRIDE"
 	preserveEnv(t, key)
@@ -99,6 +106,8 @@ func TestLoadDotEnvWithOptionsCanOverrideExisting(t *testing.T) {
 	assertEnvValue(t, key, "from-file")
 }
 
+// TestLoadDotEnvReturnsParseErrorWithLineNumber verifies that parse failures
+// report the source line number.
 func TestLoadDotEnvReturnsParseErrorWithLineNumber(t *testing.T) {
 	path := writeDotEnvFile(t, strings.Join([]string{
 		"GOOD_KEY=value",
@@ -122,6 +131,8 @@ func TestLoadDotEnvReturnsParseErrorWithLineNumber(t *testing.T) {
 	}
 }
 
+// TestLoadDotEnvRejectsTrailingContentAfterQuotedValue verifies that quoted
+// values reject unexpected trailing tokens.
 func TestLoadDotEnvRejectsTrailingContentAfterQuotedValue(t *testing.T) {
 	path := writeDotEnvFile(t, "BAD=\"value\" trailing\n")
 
@@ -134,6 +145,7 @@ func TestLoadDotEnvRejectsTrailingContentAfterQuotedValue(t *testing.T) {
 	}
 }
 
+// assertEnvValue fails the test when key does not match want.
 func assertEnvValue(t *testing.T, key, want string) {
 	t.Helper()
 	got, ok := os.LookupEnv(key)

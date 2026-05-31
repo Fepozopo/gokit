@@ -6,6 +6,8 @@ import (
 	"testing"
 )
 
+// TestClipboardCommandSpecLinuxPrefersXclipThenWlCopy verifies Linux backend
+// selection prefers xclip before wl-copy when both are available.
 func TestClipboardCommandSpecLinuxPrefersXclipThenWlCopy(t *testing.T) {
 	setOSUtilTestGlobals(t, "linux", func(name string) (string, error) {
 		switch name {
@@ -47,6 +49,8 @@ func TestClipboardCommandSpecLinuxPrefersXclipThenWlCopy(t *testing.T) {
 	}
 }
 
+// TestClipboardCommandSpecReturnsErrorWithoutLinuxBackend verifies Linux
+// selection fails when neither clipboard helper is installed.
 func TestClipboardCommandSpecReturnsErrorWithoutLinuxBackend(t *testing.T) {
 	setOSUtilTestGlobals(t, "linux", func(string) (string, error) {
 		return "", exec.ErrNotFound

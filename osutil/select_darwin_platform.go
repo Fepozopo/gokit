@@ -2,11 +2,14 @@ package osutil
 
 import "fmt"
 
+// selectFileDarwin opens a native macOS file picker and returns one file path.
 func selectFileDarwin(title string) (string, error) {
 	escaped := escapeAppleScriptString(title)
 	script := fmt.Sprintf(`POSIX path of (choose file with prompt "%s")`, escaped)
+	// Shell out to osascript so the package can use the native dialog without extra bindings.
 	out, err := runCommandOutput("osascript", "-e", script)
 	if err != nil {
+		// osascript exits with status 1 when the user dismisses the dialog.
 		if isOsascriptCancel(err) {
 			return "", nil
 		}
@@ -15,6 +18,7 @@ func selectFileDarwin(title string) (string, error) {
 	return normalizeSingleSelection(string(out)), nil
 }
 
+// selectFilesDarwin opens a native macOS file picker and returns multiple file paths.
 func selectFilesDarwin(title string) ([]string, error) {
 	escaped := escapeAppleScriptString(title)
 	script := fmt.Sprintf(`set chosen to (choose file with prompt "%s" with multiple selections allowed)
@@ -28,8 +32,10 @@ else
 end if
 set AppleScript's text item delimiters to "\n"
 return outList as string`, escaped)
+	// Shell out to osascript so the package can use the native dialog without extra bindings.
 	out, err := runCommandOutput("osascript", "-e", script)
 	if err != nil {
+		// osascript exits with status 1 when the user dismisses the dialog.
 		if isOsascriptCancel(err) {
 			return nil, nil
 		}
@@ -38,11 +44,14 @@ return outList as string`, escaped)
 	return parseSelectionList(string(out)), nil
 }
 
+// selectDirDarwin opens a native macOS folder picker and returns one directory path.
 func selectDirDarwin(title string) (string, error) {
 	escaped := escapeAppleScriptString(title)
 	script := fmt.Sprintf(`POSIX path of (choose folder with prompt "%s")`, escaped)
+	// Shell out to osascript so the package can use the native dialog without extra bindings.
 	out, err := runCommandOutput("osascript", "-e", script)
 	if err != nil {
+		// osascript exits with status 1 when the user dismisses the dialog.
 		if isOsascriptCancel(err) {
 			return "", nil
 		}
@@ -51,6 +60,7 @@ func selectDirDarwin(title string) (string, error) {
 	return normalizeSingleSelection(string(out)), nil
 }
 
+// selectDirsDarwin opens a native macOS folder picker and returns multiple directory paths.
 func selectDirsDarwin(title string) ([]string, error) {
 	escaped := escapeAppleScriptString(title)
 	script := fmt.Sprintf(`set chosen to (choose folder with prompt "%s" with multiple selections allowed)
@@ -64,8 +74,10 @@ else
 end if
 set AppleScript's text item delimiters to "\n"
 return outList as string`, escaped)
+	// Shell out to osascript so the package can use the native dialog without extra bindings.
 	out, err := runCommandOutput("osascript", "-e", script)
 	if err != nil {
+		// osascript exits with status 1 when the user dismisses the dialog.
 		if isOsascriptCancel(err) {
 			return nil, nil
 		}

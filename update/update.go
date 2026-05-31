@@ -54,10 +54,7 @@ type UpdateCheckResult struct {
 	Err error
 }
 
-// detectLatestRelease queries the GitHub Releases API and returns the best-match
-// release. It prefers published, non-prerelease releases with semver-compliant
-// tag names and returns the highest semver it can find. Asset selection is
-// matched against the current executable name plus the current GOOS/GOARCH.
+// detectLatestRelease queries the GitHub Releases API and returns the best-matching release.
 func detectLatestRelease(repo string) (*Release, bool, error) {
 	if repo == "" {
 		return nil, false, fmt.Errorf("empty repo")
@@ -100,6 +97,7 @@ func detectLatestRelease(repo string) (*Release, bool, error) {
 	return &best, true, nil
 }
 
+// parseReleaseVersion extracts and parses a semantic version from a release tag or name.
 func parseReleaseVersion(tagName, releaseName string) (semver.Version, bool) {
 	match := semverTagRegexp.FindString(tagName)
 	if match == "" {
@@ -177,10 +175,7 @@ func CheckForUpdates(currentVersion, repo string) (UpdateCheckResult, error) {
 	}, nil
 }
 
-// Update downloads and installs the given latest release. When verify is true,
-// it will download checksums and signature and verify them using the provided
-// trusted public key hex strings. GITHUB_TOKEN (if set) is used for authenticated
-// requests. On Windows, replacing the running executable remains best-effort.
+// Update downloads, verifies, installs, and restarts into the given latest release.
 func Update(repo string, latest *Release, verify bool, trustedPubKeysHex []string) error {
 	_ = repo
 	if latest == nil {
@@ -212,6 +207,7 @@ func Update(repo string, latest *Release, verify bool, trustedPubKeysHex []strin
 	return restartUpdatedExecutable(exe)
 }
 
+// expectedChecksumForRelease resolves the checksum that should match the selected release asset.
 func expectedChecksumForRelease(latest *Release, verify bool, trustedPubKeysHex []string) (string, error) {
 	if !verify {
 		return "", nil
@@ -228,6 +224,8 @@ func expectedChecksumForRelease(latest *Release, verify bool, trustedPubKeysHex 
 	if err != nil {
 		return "", fmt.Errorf("failed downloading checksums signature: %w", err)
 	}
+	// Verify the detached signature over the raw checksums.txt payload before
+	// trusting any hash extracted from that file.
 	if err := verifyChecksumsSignature(ckBody, string(sigBody), trustedPubKeysHex); err != nil {
 		return "", fmt.Errorf("checksums signature verification failed: %w", err)
 	}
@@ -235,6 +233,8 @@ func expectedChecksumForRelease(latest *Release, verify bool, trustedPubKeysHex 
 	checks := parseChecksums(ckBody)
 	expected, ok := checks[latest.AssetName]
 	if (!ok || expected == "") && latest.AssetURL != "" {
+		// Some projects list the downloadable basename in checksums.txt even when
+		// the selected asset name came from a different display field.
 		if fallback, fallbackOK := checks[path.Base(latest.AssetURL)]; fallbackOK {
 			expected = fallback
 			ok = true
@@ -246,9 +246,12 @@ func expectedChecksumForRelease(latest *Release, verify bool, trustedPubKeysHex 
 	return expected, nil
 }
 
+// installReleaseAsset downloads and installs the selected release asset over exe.
 func installReleaseAsset(exe string, latest *Release, verify bool, expected string) error {
 	if err := downloadAndReplace(latest.AssetURL, exe, verify, expected); err != nil {
 		if currentGOOS == "windows" {
+			// Replacing a running executable can fail on Windows depending on how the
+			// file is locked, so installation remains a best-effort operation there.
 			return fmt.Errorf("update install failed on Windows; replacing a running executable is best-effort and may require exiting before retrying: %w", err)
 		}
 		return fmt.Errorf("update failed: %w", err)
@@ -256,8 +259,11 @@ func installReleaseAsset(exe string, latest *Release, verify bool, expected stri
 	return nil
 }
 
+// restartUpdatedExecutable attempts to launch the updated executable after installation.
 func restartUpdatedExecutable(exe string) error {
 	if currentGOOS == "windows" {
+		// Windows cannot replace the current process image with syscall.Exec, so the
+		// best available option is to start a new process and let the caller exit.
 		cmd := exec.Command(exe, os.Args[1:]...)
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout

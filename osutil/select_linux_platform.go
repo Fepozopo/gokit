@@ -2,7 +2,9 @@ package osutil
 
 import "fmt"
 
+// selectFileLinux opens a native Linux file picker and returns one file path.
 func selectFileLinux(title string) (string, error) {
+	// Choose the helper at runtime so the package works with whatever desktop tool is installed.
 	switch linuxSelectionBackend() {
 	case "zenity":
 		return pickFileZenity(title)
@@ -13,6 +15,7 @@ func selectFileLinux(title string) (string, error) {
 	}
 }
 
+// pickFileZenity opens a file picker through zenity.
 func pickFileZenity(title string) (string, error) {
 	raw, err := runCancelableCombinedCommand("zenity", "--file-selection", fmt.Sprintf("--title=%s", title))
 	if err != nil {
@@ -21,6 +24,7 @@ func pickFileZenity(title string) (string, error) {
 	return normalizeSingleSelection(raw), nil
 }
 
+// pickFileKDialog opens a file picker through kdialog.
 func pickFileKDialog(title string) (string, error) {
 	raw, err := runCancelableCombinedCommand("kdialog", "--getopenfilename", "", title)
 	if err != nil {
@@ -29,9 +33,12 @@ func pickFileKDialog(title string) (string, error) {
 	return normalizeSingleSelection(raw), nil
 }
 
+// selectFilesLinux opens a native Linux file picker and returns multiple file paths.
 func selectFilesLinux(title string) ([]string, error) {
+	// Choose the helper at runtime so the package works with whatever desktop tool is installed.
 	switch linuxSelectionBackend() {
 	case "zenity":
+		// Ask zenity for newline-separated output; parseSelectionList still accepts pipes.
 		raw, err := runCancelableCombinedCommand("zenity", "--file-selection", "--multiple", `--separator=\n`, fmt.Sprintf("--title=%s", title))
 		if err != nil {
 			return nil, err
@@ -48,7 +55,9 @@ func selectFilesLinux(title string) ([]string, error) {
 	}
 }
 
+// selectDirLinux opens a native Linux folder picker and returns one directory path.
 func selectDirLinux(title string) (string, error) {
+	// Choose the helper at runtime so the package works with whatever desktop tool is installed.
 	switch linuxSelectionBackend() {
 	case "zenity":
 		raw, err := runCancelableCombinedCommand("zenity", "--file-selection", "--directory", fmt.Sprintf("--title=%s", title))
@@ -67,9 +76,12 @@ func selectDirLinux(title string) (string, error) {
 	}
 }
 
+// selectDirsLinux opens a native Linux folder picker and returns multiple directory paths.
 func selectDirsLinux(title string) ([]string, error) {
+	// Choose the helper at runtime so the package works with whatever desktop tool is installed.
 	switch linuxSelectionBackend() {
 	case "zenity":
+		// Ask zenity for newline-separated output; parseSelectionList still accepts pipes.
 		raw, err := runCancelableCombinedCommand("zenity", "--file-selection", "--directory", "--multiple", `--separator=\n`, fmt.Sprintf("--title=%s", title))
 		if err != nil {
 			return nil, err

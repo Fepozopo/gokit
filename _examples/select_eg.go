@@ -7,15 +7,15 @@ import (
 	"github.com/Fepozopo/gokit/osutil"
 )
 
-// Simple example program demonstrating the selection helpers in the osutil package.
+// main demonstrates the selection helpers in the osutil package.
 //
 // Usage:
 //
 //	go run ./_examples/select_eg.go
 //
 // Notes:
-// - These functions attempt to open the native file or directory picker on each OS.
-// - If the user cancels the dialog, the functions return an empty result with a nil error.
+//   - These functions attempt to open the native file or directory picker on each OS.
+//   - If the user cancels the dialog, the functions return an empty result with a nil error.
 func main() {
 	fmt.Println("=== Example: OpenFileSelection (single file) ===")
 	sel, err := osutil.OpenFileSelection("Select a file to open")

@@ -6,7 +6,8 @@ import (
 	"strings"
 )
 
-// Version represents a semantic version (core + optional pre-release and build metadata).
+// Version represents a semantic version with core numbers, optional
+// pre-release identifiers, and optional build metadata.
 type Version struct {
 	Major int
 	Minor int
@@ -18,15 +19,18 @@ type Version struct {
 	Signature *Signature
 }
 
-// Signature holds signing metadata parsed from build metadata. It's intentionally
-// lightweight: `Algo` is a string like "sha256" and `Hex` holds the hex-encoded
-// signature/token. Presence of a non-nil Signature does not affect semver
-// precedence or equality (build metadata is ignored by semver rules).
+// Signature holds signing metadata parsed from build metadata.
+//
+// It is intentionally lightweight: Algo is a string like "sha256" and Hex holds
+// the hex-encoded signature token. Presence of a non-nil Signature does not
+// affect semver precedence or equality because build metadata is ignored by the
+// semver rules.
 type Signature struct {
 	Algo string
 	Hex  string
 }
 
+// String returns the canonical string form of the version.
 func (v Version) String() string {
 	core := fmt.Sprintf("%d.%d.%d", v.Major, v.Minor, v.Patch)
 	if len(v.Pre) > 0 {
@@ -116,9 +120,12 @@ func (v Version) GT(o Version) bool {
 	return len(v.Pre) > len(o.Pre)
 }
 
-// Parse parses a semantic version string (allows optional leading 'v').
-//   - major/minor/patch must be non-negative integers without leading zeros (except "0")
-//   - pre-release identifiers must be ASCII alphanumerics or hyphen; if numeric, they must not have leading zeros
+// Parse parses a semantic version string and allows an optional leading "v".
+//
+// Core numeric identifiers must be non-negative integers without leading zeros,
+// except for "0" itself. Pre-release identifiers must contain only ASCII
+// alphanumerics or hyphens, and numeric pre-release identifiers must not have
+// leading zeros.
 func Parse(s string) (Version, error) {
 	orig := s
 	if strings.HasPrefix(s, "v") || strings.HasPrefix(s, "V") {
@@ -169,11 +176,13 @@ func Parse(s string) (Version, error) {
 
 	v := Version{Major: maj, Minor: min, Patch: patch, Pre: pre, Build: build}
 
-	// Parse signature token out of build metadata if present. Accept forms:
-	//  - sig.<hex>            (assume algo sha256)
-	//  - sig.<algo>.<hex>
-	// The build metadata may contain multiple dot-separated identifiers; scan
-	// them to find a segment starting with "sig".
+	// Parse an optional signature token out of the build metadata. The build
+	// metadata may contain multiple dot-separated identifiers, so scan for a
+	// "sig" segment rather than assuming a fixed position.
+	//
+	// Accepted forms are:
+	//   - sig.<hex>         (assume algo sha256)
+	//   - sig.<algo>.<hex>
 	if build != "" {
 		parts := strings.Split(build, ".")
 		for i, part := range parts {
@@ -198,8 +207,7 @@ func Parse(s string) (Version, error) {
 	return v, nil
 }
 
-// isHex returns true if s contains only hex characters (0-9, a-f, A-F) and
-// has at least one character.
+// isHex reports whether s contains only hexadecimal characters and is non-empty.
 func isHex(s string) bool {
 	if s == "" {
 		return false
@@ -214,7 +222,7 @@ func isHex(s string) bool {
 	return true
 }
 
-// isDigits returns true if s contains only ASCII digits and at least one char.
+// isDigits reports whether s contains only ASCII digits and is non-empty.
 func isDigits(s string) bool {
 	if s == "" {
 		return false
@@ -229,17 +237,17 @@ func isDigits(s string) bool {
 	return true
 }
 
-// isNumericNoLeadingZeros returns true if s is "0" or does not start with '0'.
+// isNumericNoLeadingZeros reports whether s is "0" or a non-zero-prefixed number.
 func isNumericNoLeadingZeros(s string) bool {
-    if s == "" {
-        return false
-    }
-    // allowed: single "0"; otherwise the first byte must not be '0'
-    return s == "0" || s[0] != '0'
+	if s == "" {
+		return false
+	}
+	// A single "0" is valid, but any longer numeric identifier may not start
+	// with '0' under semver.
+	return s == "0" || s[0] != '0'
 }
 
-// isValidPrereleaseIdent returns true if the identifier contains only
-// ASCII alphanumerics and hyphen (per semver) and is non-empty.
+// isValidPrereleaseIdent reports whether s is a non-empty semver pre-release identifier.
 func isValidPrereleaseIdent(s string) bool {
 	if s == "" {
 		return false

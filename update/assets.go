@@ -10,6 +10,7 @@ import (
 	"strings"
 )
 
+// githubRelease mirrors the subset of the GitHub Releases API response that this package uses.
 type githubRelease struct {
 	TagName    string               `json:"tag_name"`
 	Name       string               `json:"name"`
@@ -18,15 +19,18 @@ type githubRelease struct {
 	Assets     []githubReleaseAsset `json:"assets"`
 }
 
+// githubReleaseAsset mirrors the subset of a GitHub release asset that this package uses.
 type githubReleaseAsset struct {
 	Name               string `json:"name"`
 	BrowserDownloadURL string `json:"browser_download_url"`
 }
 
+// releaseCandidate wraps a parsed release that survived filtering and asset selection.
 type releaseCandidate struct {
 	release Release
 }
 
+// assetMatch describes how well an asset name matches the current executable and platform.
 type assetMatch struct {
 	score       int
 	baseMatched bool
@@ -41,6 +45,7 @@ var (
 	semverTagRegexp = regexp.MustCompile(`v?\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?`)
 )
 
+// releaseCandidateFromGitHubRelease converts a GitHub release into a candidate release.
 func releaseCandidateFromGitHubRelease(r githubRelease, execBases []string, goos, goarch string) (releaseCandidate, bool) {
 	if r.Draft || r.Prerelease {
 		return releaseCandidate{}, false
@@ -66,6 +71,7 @@ func releaseCandidateFromGitHubRelease(r githubRelease, execBases []string, goos
 	}, true
 }
 
+// currentExecutableBaseCandidates returns the executable base names to match against release assets.
 func currentExecutableBaseCandidates(goos, goarch string) ([]string, error) {
 	exe, err := executablePath()
 	if err != nil {
@@ -84,6 +90,7 @@ func currentExecutableBaseCandidates(goos, goarch string) ([]string, error) {
 	return uniqueStrings(candidates), nil
 }
 
+// normalizeExecutableBase normalizes an executable or asset name for matching.
 func normalizeExecutableBase(name string) string {
 	name = strings.TrimSpace(filepath.Base(name))
 	if strings.HasSuffix(strings.ToLower(name), ".exe") {
@@ -92,6 +99,7 @@ func normalizeExecutableBase(name string) string {
 	return strings.ToLower(name)
 }
 
+// stripPlatformSuffix removes a trailing os-arch suffix from a normalized executable base.
 func stripPlatformSuffix(base, goos, goarch string) string {
 	for _, osAlias := range osAliases(goos) {
 		for _, archAlias := range archAliases(goarch) {
@@ -106,6 +114,7 @@ func stripPlatformSuffix(base, goos, goarch string) string {
 	return base
 }
 
+// checksumAssetURLs returns the checksum and checksum-signature asset URLs for a release.
 func checksumAssetURLs(assets []githubReleaseAsset) (checksumsURL, checksumsSigURL string) {
 	for _, a := range assets {
 		nameLower := strings.ToLower(a.Name)
@@ -119,12 +128,14 @@ func checksumAssetURLs(assets []githubReleaseAsset) (checksumsURL, checksumsSigU
 	return checksumsURL, checksumsSigURL
 }
 
+// selectReleaseAsset chooses the best installable asset for the current executable and platform.
 func selectReleaseAsset(assets []githubReleaseAsset, execBases []string, goos, goarch string) (githubReleaseAsset, bool) {
 	candidates := filterInstallableAssets(assets)
 	if len(candidates) == 0 {
 		return githubReleaseAsset{}, false
 	}
 
+	// Prefer an exact "<binary>-<os>-<arch>" style name before applying heuristics.
 	if exact, ok := selectExactAsset(candidates, execBases, goos, goarch); ok {
 		return exact, true
 	}
@@ -163,16 +174,20 @@ func selectReleaseAsset(assets []githubReleaseAsset, execBases []string, goos, g
 			ambiguous = true
 		}
 	}
+	// If multiple assets tie for the best heuristic match, refuse to guess.
 	if bestIndex >= 0 && !ambiguous {
 		return considered[bestIndex], true
 	}
 	return githubReleaseAsset{}, true
 }
 
+// filterInstallableAssets removes release assets that this updater cannot install directly.
 func filterInstallableAssets(assets []githubReleaseAsset) []githubReleaseAsset {
 	out := make([]githubReleaseAsset, 0, len(assets))
 	for _, a := range assets {
 		nameLower := strings.ToLower(a.Name)
+		// This updater swaps in a single executable file. Metadata assets and archives
+		// are intentionally ignored because this package does not unpack releases.
 		if a.BrowserDownloadURL == "" || isMetadataAsset(nameLower) || isArchiveAsset(nameLower) {
 			continue
 		}
@@ -181,6 +196,7 @@ func filterInstallableAssets(assets []githubReleaseAsset) []githubReleaseAsset {
 	return out
 }
 
+// selectExactAsset returns an asset whose name exactly matches one of the expected platform variants.
 func selectExactAsset(assets []githubReleaseAsset, execBases []string, goos, goarch string) (githubReleaseAsset, bool) {
 	expected := expectedExactAssetNames(execBases, goos, goarch)
 	for _, asset := range assets {
@@ -191,6 +207,7 @@ func selectExactAsset(assets []githubReleaseAsset, execBases []string, goos, goa
 	return githubReleaseAsset{}, false
 }
 
+// expectedExactAssetNames builds the exact asset names that are considered a direct match.
 func expectedExactAssetNames(execBases []string, goos, goarch string) map[string]struct{} {
 	out := make(map[string]struct{})
 	osVariants := osAliases(goos)
@@ -212,10 +229,13 @@ func expectedExactAssetNames(execBases []string, goos, goarch string) map[string
 	return out
 }
 
+// scoreAssetMatch scores how well an asset name matches the current executable and platform.
 func scoreAssetMatch(name string, execBases []string, goos, goarch string) assetMatch {
 	baseMatched := assetMatchesAnyBase(name, execBases)
 	osMatched, osMentioned := dimensionMatch(name, osAliases(goos), allOSAliases())
 	archMatched, archMentioned := dimensionMatch(name, archAliases(goarch), allArchAliases())
+	// An explicit reference to a different OS or architecture is treated as a hard
+	// conflict so a clearly wrong asset never beats a generic one.
 	if (osMentioned && !osMatched) || (archMentioned && !archMatched) {
 		return assetMatch{conflict: true}
 	}
@@ -237,6 +257,7 @@ func scoreAssetMatch(name string, execBases []string, goos, goarch string) asset
 	}
 }
 
+// filterByBaseMatch keeps only assets whose names match one of the executable base candidates.
 func filterByBaseMatch(assets []githubReleaseAsset, execBases []string) []githubReleaseAsset {
 	out := make([]githubReleaseAsset, 0, len(assets))
 	for _, asset := range assets {
@@ -247,6 +268,7 @@ func filterByBaseMatch(assets []githubReleaseAsset, execBases []string) []github
 	return out
 }
 
+// assetMatchesAnyBase reports whether an asset name appears to belong to any executable base candidate.
 func assetMatchesAnyBase(name string, execBases []string) bool {
 	assetBase := normalizeExecutableBase(name)
 	for _, base := range execBases {
@@ -257,10 +279,12 @@ func assetMatchesAnyBase(name string, execBases []string) bool {
 	return false
 }
 
+// isMetadataAsset reports whether an asset is checksum metadata rather than an installable binary.
 func isMetadataAsset(nameLower string) bool {
 	return nameLower == "checksums.txt" || isChecksumSignatureAsset(nameLower)
 }
 
+// isChecksumSignatureAsset reports whether an asset name looks like a detached checksum signature.
 func isChecksumSignatureAsset(nameLower string) bool {
 	switch nameLower {
 	case "checksums.txt.sig", "checksums.sig", "checksums.txt.asc", "checksums.asc":
@@ -270,6 +294,7 @@ func isChecksumSignatureAsset(nameLower string) bool {
 	}
 }
 
+// isArchiveAsset reports whether an asset name is an archive that this updater does not unpack.
 func isArchiveAsset(nameLower string) bool {
 	archiveSuffixes := []string{".zip", ".tar", ".tar.gz", ".tgz", ".tar.xz", ".txz", ".tar.bz2", ".tbz2", ".gz", ".xz", ".bz2"}
 	for _, suffix := range archiveSuffixes {
@@ -280,6 +305,7 @@ func isArchiveAsset(nameLower string) bool {
 	return false
 }
 
+// dimensionMatch reports whether a name mentions the current dimension and whether it mentions any known dimension.
 func dimensionMatch(name string, currentAliases []string, allAliases map[string][]string) (matched, mentioned bool) {
 	for _, alias := range currentAliases {
 		if containsPlatformToken(name, alias) {
@@ -296,11 +322,13 @@ func dimensionMatch(name string, currentAliases []string, allAliases map[string]
 	return false, false
 }
 
+// containsPlatformToken reports whether a name contains alias as a standalone platform token.
 func containsPlatformToken(name, alias string) bool {
 	pattern := fmt.Sprintf(`(^|[^a-z0-9])%s([^a-z0-9]|$)`, regexp.QuoteMeta(strings.ToLower(alias)))
 	return regexp.MustCompile(pattern).MatchString(strings.ToLower(name))
 }
 
+// osAliases returns the known release-asset aliases for a GOOS value.
 func osAliases(goos string) []string {
 	switch goos {
 	case "darwin":
@@ -314,6 +342,7 @@ func osAliases(goos string) []string {
 	}
 }
 
+// archAliases returns the known release-asset aliases for a GOARCH value.
 func archAliases(goarch string) []string {
 	switch goarch {
 	case "amd64":
@@ -329,6 +358,7 @@ func archAliases(goarch string) []string {
 	}
 }
 
+// allOSAliases returns the known OS aliases indexed by canonical GOOS.
 func allOSAliases() map[string][]string {
 	return map[string][]string{
 		"darwin":  osAliases("darwin"),
@@ -337,6 +367,7 @@ func allOSAliases() map[string][]string {
 	}
 }
 
+// allArchAliases returns the known architecture aliases indexed by canonical GOARCH.
 func allArchAliases() map[string][]string {
 	return map[string][]string{
 		"amd64": archAliases("amd64"),
@@ -346,6 +377,7 @@ func allArchAliases() map[string][]string {
 	}
 }
 
+// uniqueStrings returns the distinct non-empty strings from values in sorted order.
 func uniqueStrings(values []string) []string {
 	seen := make(map[string]struct{}, len(values))
 	out := make([]string, 0, len(values))

@@ -12,10 +12,12 @@ func CopyTextToClipboard(text string) error {
 	if err != nil {
 		return err
 	}
+	// Native clipboard tools read the payload from stdin.
 	cmd.Stdin = strings.NewReader(text)
 	return cmd.Run()
 }
 
+// clipboardCommand builds the native clipboard command for the current platform.
 func clipboardCommand() (*exec.Cmd, error) {
 	name, args, err := clipboardCommandSpec(currentGOOS)
 	if err != nil {
@@ -24,6 +26,7 @@ func clipboardCommand() (*exec.Cmd, error) {
 	return commandExec(name, args...), nil
 }
 
+// clipboardCommandSpec returns the executable name and arguments for the given OS.
 func clipboardCommandSpec(goos string) (string, []string, error) {
 	switch goos {
 	case "darwin":
@@ -31,6 +34,7 @@ func clipboardCommandSpec(goos string) (string, []string, error) {
 	case "windows":
 		return "clip", nil, nil
 	case "linux":
+		// Prefer xclip when available, then fall back to wl-copy.
 		if hasCommand("xclip") {
 			return "xclip", []string{"-selection", "clipboard"}, nil
 		}

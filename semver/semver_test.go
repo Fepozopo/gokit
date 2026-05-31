@@ -4,6 +4,7 @@ import (
 	"testing"
 )
 
+// TestParseValid verifies that Parse accepts well-formed semantic versions.
 func TestParseValid(t *testing.T) {
 	cases := []struct {
 		in string
@@ -27,6 +28,8 @@ func TestParseValid(t *testing.T) {
 	}
 }
 
+// TestParseRejectsLeadingZerosAndInvalidPre verifies that Parse rejects invalid
+// numeric identifiers and malformed pre-release identifiers.
 func TestParseRejectsLeadingZerosAndInvalidPre(t *testing.T) {
 	reject := []string{
 		"v01.2.3",
@@ -44,6 +47,8 @@ func TestParseRejectsLeadingZerosAndInvalidPre(t *testing.T) {
 	}
 }
 
+// TestParseAcceptsBuildAndValidPre verifies that Parse accepts valid build
+// metadata and valid pre-release identifiers.
 func TestParseAcceptsBuildAndValidPre(t *testing.T) {
 	cases := []string{
 		"1.2.3+build.info.sig.sha256.abcdef",
@@ -57,8 +62,9 @@ func TestParseAcceptsBuildAndValidPre(t *testing.T) {
 	}
 }
 
+// TestPrereleaseNumericComparisonLarge verifies that long numeric pre-release
+// identifiers are compared numerically without relying on integer conversion.
 func TestPrereleaseNumericComparisonLarge(t *testing.T) {
-	// ensure numeric pre-release comparison works for long numeric identifiers
 	a, err := Parse("1.0.0-12345678901234567890")
 	if err != nil {
 		t.Fatalf("Parse a unexpected error: %v", err)
@@ -72,6 +78,8 @@ func TestPrereleaseNumericComparisonLarge(t *testing.T) {
 	}
 }
 
+// TestParseSignatureInBuild verifies that Parse preserves build metadata while
+// extracting signature information from supported build token forms.
 func TestParseSignatureInBuild(t *testing.T) {
 	v, err := Parse("1.2.3+sig.sha256.deadbeef")
 	if err != nil {
@@ -101,6 +109,7 @@ func TestParseSignatureInBuild(t *testing.T) {
 	}
 }
 
+// TestParseInvalid verifies that Parse rejects malformed semantic versions.
 func TestParseInvalid(t *testing.T) {
 	cases := []string{"1.2", "a.b.c", "1.2.x", ""}
 	for _, c := range cases {
@@ -110,6 +119,7 @@ func TestParseInvalid(t *testing.T) {
 	}
 }
 
+// TestEquals verifies that Equals compares versions while ignoring build metadata.
 func TestEquals(t *testing.T) {
 	cases := []struct {
 		a    string
@@ -136,6 +146,7 @@ func TestEquals(t *testing.T) {
 	}
 }
 
+// TestGT verifies semver precedence comparisons implemented by GT.
 func TestGT(t *testing.T) {
 	cases := []struct {
 		a    string
