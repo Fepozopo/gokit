@@ -1,10 +1,13 @@
 # gokit
 
-Small collection of reusable Go helpers and release utilities used across projects.
+Small collection of reusable Go helpers and release-related utilities used across projects.
 
-This repository contains a few focused packages and helper scripts that make it
-easy to parse/compare semantic versions, implement a secure self-update flow
-(signed checksums + ed25519 verification), and load simple `.env` files.
+This repository is a **library repo**: it contains focused Go packages you can import
+from other projects, plus a few optional helper scripts under [`scripts/`](./scripts/)
+that downstream application repos can copy or adapt when they need build/signing tooling.
+
+The packages here cover semantic version parsing/comparison, a secure self-update flow
+(signed checksums + ed25519 verification), simple `.env` loading, and a few OS helpers.
 
 Requires Go 1.26+ (see `go.mod`).
 
@@ -16,21 +19,21 @@ Requires Go 1.26+ (see `go.mod`).
   - [Check for updates and apply them (basic pattern)](#check-for-updates-and-apply-them-basic-pattern)
   - [Load a `.env` file into environment variables](#load-a-env-file-into-environment-variables)
   - [Copy text to the system clipboard](#copy-text-to-the-system-clipboard)
-- [File/Directory selection utility](#file-picker-utility)
-- [Build & release workflow](#build--release-workflow)
+- [File/Directory selection utility](#filedirectory-selection-utility)
+- [Downstream build & release helpers](#downstream-build--release-helpers)
 - [Testing](#testing)
 - [License](#license)
 
 ## Contents
 
 - [semver/](./semver/) — parse and compare semantic versions.
-- [update/](./update/) — helpers to detect releases on GitHub, verify signed `checksums.txt`, download artifacts and atomically replace the running executable.
+- [update/](./update/) — helpers to detect releases on GitHub, verify signed `checksums.txt`, download artifacts, and atomically replace the running executable.
 - [osutil/](./osutil/) — small OS-related utilities:
   - [osutil/select.go](./osutil/select.go) — cross-platform selection helpers (`OpenFileSelection`, `OpenFilesSelection`, `OpenDirSelection`, `OpenDirsSelection`).
   - [osutil/clipboard.go](./osutil/clipboard.go) — cross-platform clipboard helper (`CopyTextToClipboard`).
-  - [env/](./env/) — environment helpers (`LoadDotEnv`).
   - [osutil/replace.go](./osutil/replace.go) — atomic file replacement helpers (`AtomicReplace`, `CopyFile`, `IsCrossDeviceErr`).
-- [scripts/](./scripts/) — build and signing helpers (`build-all.sh`, signing and key derivation tools).
+- [env/](./env/) — environment helpers (`LoadDotEnv`).
+- [scripts/](./scripts/) — optional downstream helper scripts; see [`scripts/README.md`](./scripts/README.md).
 - [\_examples/](./_examples/) — runnable examples:
   - [\_examples/select_eg.go](./_examples/select_eg.go) — demonstrates the selection helpers.
 
@@ -145,9 +148,8 @@ Behavior by platform:
 
 - macOS: uses `osascript` (AppleScript) to show `choose file` dialogs.
 - Windows: uses PowerShell (`System.Windows.Forms.OpenFileDialog`).
-- Linux: tries `zenity`, then `kdialog`. If neither is available the package falls
-  back to a console prompt.
-  If neither is available the helpers return osutil.ErrNoGUISelection (exported sentinel).
+- Linux: tries `zenity`, then `kdialog`.
+  If neither is available the helpers return `osutil.ErrNoGUISelection`.
 
 Exported helpers:
 
@@ -155,7 +157,6 @@ Exported helpers:
   empty string + nil error if the user cancels.
 - `OpenFilesSelection(title string) ([]string, error)` — multi-file selection. Returns
   a nil slice + nil error on cancel.
-
 - `OpenDirSelection(title string) (string, error)` — single-directory selection. Returns an
   empty string + nil error if the user cancels.
 - `OpenDirsSelection(title string) ([]string, error)` — multi-directory selection. Returns an
@@ -183,11 +184,26 @@ go run ./_examples/select_eg.go
 
 ---
 
-## Build & release workflow
+## Downstream build & release helpers
 
-- `scripts/build-all.sh` — build artifacts for supported platforms and produce `checksums.txt`. If an ed25519 seed is present the script may sign checksums.
-- `scripts/sign_checksums/` — signer helper.
-- `scripts/derive_pub/` — derive public key helper.
+This repository does not ship its own `./cmd/*` binaries. Instead, the scripts in
+[`scripts/`](./scripts/) are optional helpers that downstream application repos can
+copy or adapt when they need cross-compilation or signing utilities.
+
+Highlights:
+
+- [`scripts/build-all.sh`](./scripts/build-all.sh) — build one or more explicitly provided Go `main` packages for a standard platform matrix and produce `checksums.txt`.
+- [`scripts/sign_checksums/`](./scripts/sign_checksums/) — signer helper.
+- [`scripts/derive_pub/`](./scripts/derive_pub/) — derive public key helper.
+- [`scripts/README.md`](./scripts/README.md) — usage notes for the helper scripts.
+
+Example downstream usage from an application repo:
+
+```bash
+./scripts/build-all.sh -o ./dist -t v1.2.3 ./cmd/myapp ./cmd/worker
+```
+
+Release-signing steps:
 
 1. Generate an ed25519 seed (keep it private):
 
@@ -203,35 +219,28 @@ go run scripts/derive_pub/derive_pub.go "$SEED_B64"
 # prints 64-hex public key
 ```
 
-Notes on update checking
+Notes on update checking:
 
-- `CheckForUpdates` returns an `UpdateCheckResult` with fields `Available`, `Latest`, and `Err`. Inspect `UpdateCheckResult.Err` for programmatic hints (sentinel errors exported from the `update` package): `ErrNoReleases`, `ErrNoAsset`, `ErrMissing_CHECKSUMS`, and `ErrCurrentVersionInvalid`.
+- `CheckForUpdates` returns an `UpdateCheckResult` with fields `Available`, `Latest`, and `Err`.
+- Inspect `UpdateCheckResult.Err` for programmatic hints (sentinel errors exported from the `update` package): `ErrNoReleases`, `ErrNoAsset`, `ErrMissingChecksums`, and `ErrCurrentVersionInvalid`.
 - The update code honors the `GITHUB_TOKEN` environment variable for authenticated requests. Export a token to increase rate limits or to access private releases:
 
 ```bash
 export GITHUB_TOKEN="ghp_..."
 ```
 
-Build artifacts:
+Notes on atomic replacement:
 
-```bash
-./scripts/build-all.sh
-```
-
-Notes on atomic replacement
-
-- The repository now provides `osutil.AtomicReplace`, `osutil.CopyFile` and `osutil.IsCrossDeviceErr` (see [osutil/replace.go](./osutil/replace.go)).
-- The `update` package was refactored to use `osutil.AtomicReplace` when installing updates; this centralizes cross-device fallback and reduces duplication.
+- The repository provides `osutil.AtomicReplace`, `osutil.CopyFile`, and `osutil.IsCrossDeviceErr` (see [osutil/replace.go](./osutil/replace.go)).
+- The `update` package uses `osutil.AtomicReplace` when installing updates; this centralizes cross-device fallback and reduces duplication.
 - Tests for the replace/copy helpers are included under `osutil/`.
 
-The build script writes `checksums.txt`. If `ed25519_seed.bin` exists the script will run the signer to produce `checksums.txt.sig` which is a single-line hex-encoded ed25519 signature over the checksums file. You can sign manually:
+The build helper writes `checksums.txt`. If `ed25519_seed.bin` exists, it can run the signer to produce `checksums.txt.sig`, which is a single-line hex-encoded ed25519 signature over the checksums file. You can sign manually:
 
 ```bash
 go run scripts/sign_checksums/sign_checksums.go checksums.txt ed25519_seed.bin
 # writes checksums.txt.sig (hex-encoded ed25519 signature)
 ```
-
-Upload built binaries plus `checksums.txt` and `checksums.txt.sig` to a GitHub Release.
 
 ---
 

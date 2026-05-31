@@ -7,21 +7,20 @@ import (
 	"github.com/Fepozopo/gokit/osutil"
 )
 
-// Simple example program demonstrating the OpenFilePicker and OpenFilesPicker
-// helpers in the osutil package.
+// Simple example program demonstrating the selection helpers in the osutil package.
 //
 // Usage:
 //
-//	go run ./_examples/file_eg.go
+//	go run ./_examples/select_eg.go
 //
 // Notes:
-// - These functions will attempt to open the native file-picker on each OS.
+// - These functions attempt to open the native file or directory picker on each OS.
 // - If the user cancels the dialog, the functions return an empty result with a nil error.
 func main() {
-	fmt.Println("=== Example: OpenFilePicker (single file) ===")
+	fmt.Println("=== Example: OpenFileSelection (single file) ===")
 	sel, err := osutil.OpenFileSelection("Select a file to open")
 	if err != nil {
-		log.Fatalf("OpenFilePicker error: %v", err)
+		log.Fatalf("OpenFileSelection error: %v", err)
 	}
 	if sel == "" {
 		fmt.Println("No file selected (canceled).")
@@ -30,10 +29,10 @@ func main() {
 	}
 
 	fmt.Println()
-	fmt.Println("=== Example: OpenFilesPicker (multiple files) ===")
+	fmt.Println("=== Example: OpenFilesSelection (multiple files) ===")
 	multi, err := osutil.OpenFilesSelection("Select one or more files")
 	if err != nil {
-		log.Fatalf("OpenFilesPicker error: %v", err)
+		log.Fatalf("OpenFilesSelection error: %v", err)
 	}
 	if len(multi) == 0 {
 		fmt.Println("No files selected (canceled).")
@@ -45,10 +44,10 @@ func main() {
 	}
 
 	fmt.Println()
-	fmt.Println("=== Example: OpenDirPicker (single directory) ===")
+	fmt.Println("=== Example: OpenDirSelection (single directory) ===")
 	dir, err := osutil.OpenDirSelection("Select a directory to open")
 	if err != nil {
-		log.Fatalf("OpenDirPicker error: %v", err)
+		log.Fatalf("OpenDirSelection error: %v", err)
 	}
 	if dir == "" {
 		fmt.Println("No directory selected (canceled).")
@@ -57,10 +56,10 @@ func main() {
 	}
 
 	fmt.Println()
-	fmt.Println("=== Example: OpenDirsPicker (multiple directories) ===")
+	fmt.Println("=== Example: OpenDirsSelection (multiple directories) ===")
 	dirs, err := osutil.OpenDirsSelection("Select one or more directories")
 	if err != nil {
-		log.Fatalf("OpenDirsPicker error: %v", err)
+		log.Fatalf("OpenDirsSelection error: %v", err)
 	}
 	if len(dirs) == 0 {
 		fmt.Println("No directories selected (canceled).")
