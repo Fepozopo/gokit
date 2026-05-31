@@ -9,7 +9,7 @@ that downstream application repos can copy or adapt when they need build/signing
 The packages here cover semantic version parsing/comparison, a secure self-update flow
 (signed checksums + ed25519 verification), simple `.env` loading, and a few OS helpers.
 
-Requires Go 1.26+ (see `go.mod`).
+Requires Go 1.21+ (see `go.mod`).
 
 ## Table of contents
 
