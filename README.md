@@ -32,7 +32,7 @@ Requires Go 1.26+ (see `go.mod`).
   - [osutil/select.go](./osutil/select.go) — cross-platform selection helpers (`OpenFileSelection`, `OpenFilesSelection`, `OpenDirSelection`, `OpenDirsSelection`).
   - [osutil/clipboard.go](./osutil/clipboard.go) — cross-platform clipboard helper (`CopyTextToClipboard`).
   - [osutil/replace.go](./osutil/replace.go) — atomic file replacement helpers (`AtomicReplace`, `CopyFile`, `IsCrossDeviceErr`).
-- [env/](./env/) — environment helpers (`LoadDotEnv`).
+- [env/](./env/) — environment helpers (`LoadDotEnv`, `LoadDotEnvWithOptions`).
 - [scripts/](./scripts/) — optional downstream helper scripts; see [`scripts/README.md`](./scripts/README.md).
 - [\_examples/](./_examples/) — runnable examples:
   - [\_examples/select_eg.go](./_examples/select_eg.go) — demonstrates the selection helpers.
@@ -113,7 +113,12 @@ func main() {
 import "github.com/Fepozopo/gokit/env"
 
 if err := env.LoadDotEnv(".env"); err != nil {
-    // handle error or ignore (LoadDotEnv returns an error if file can't be read)
+    // handle file or parse errors
+}
+
+// If you want file values to overwrite existing process environment variables:
+if err := env.LoadDotEnvWithOptions(".env", env.LoadOptions{OverrideExisting: true}); err != nil {
+    // handle file or parse errors
 }
 ```
 
