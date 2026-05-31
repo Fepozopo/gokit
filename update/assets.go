@@ -129,9 +129,9 @@ func selectReleaseAsset(assets []githubReleaseAsset, execBases []string, goos, g
 		return exact, true
 	}
 
-	considered := candidates
-	if hasAnyBaseMatch(candidates, execBases) {
-		considered = filterByBaseMatch(candidates, execBases)
+	considered := filterByBaseMatch(candidates, execBases)
+	if len(considered) == 0 {
+		return githubReleaseAsset{}, true
 	}
 
 	if len(considered) == 1 {
@@ -235,15 +235,6 @@ func scoreAssetMatch(name string, execBases []string, goos, goarch string) asset
 		baseMatched: baseMatched,
 		generic:     !osMentioned && !archMentioned,
 	}
-}
-
-func hasAnyBaseMatch(assets []githubReleaseAsset, execBases []string) bool {
-	for _, asset := range assets {
-		if assetMatchesAnyBase(asset.Name, execBases) {
-			return true
-		}
-	}
-	return false
 }
 
 func filterByBaseMatch(assets []githubReleaseAsset, execBases []string) []githubReleaseAsset {
