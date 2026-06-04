@@ -356,6 +356,124 @@ func TestExpectedChecksumForReleaseFailsInvalidSignature(t *testing.T) {
 	}
 }
 
+// TestExpectedChecksumForReleaseRejectsInvalidTrustedPublicKey verifies malformed trust material
+// is rejected before any checksum or signature download is attempted.
+func TestExpectedChecksumForReleaseRejectsInvalidTrustedPublicKey(t *testing.T) {
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		t.Fatalf("unexpected request path: %s", r.URL.Path)
+	}))
+	defer server.Close()
+
+	testUpdater := newTestUpdater(t, "linux", "amd64", "/tmp/myapp", server.Client())
+
+	latest := &Release{
+		Version:         semver.Version{Major: 1, Minor: 2, Patch: 3},
+		AssetName:       "myapp-linux-amd64",
+		AssetURL:        server.URL + "/myapp-linux-amd64",
+		ChecksumsURL:    server.URL + "/checksums.txt",
+		ChecksumsSigURL: server.URL + "/checksums.txt.sig",
+	}
+
+	_, err := testUpdater.expectedChecksumForRelease(latest, true, []string{"not-hex"})
+	if err == nil {
+		t.Fatal("expected invalid trusted public key error")
+	}
+	if !strings.Contains(err.Error(), "invalid trusted public keys") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if requestCount != 0 {
+		t.Fatalf("request count = %d, want 0", requestCount)
+	}
+}
+
+// TestExpectedChecksumForReleaseRejectsMalformedChecksums verifies checksum parsing fails
+// when the signed checksums.txt payload contains invalid checksum data.
+func TestExpectedChecksumForReleaseRejectsMalformedChecksums(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+
+	checksumsBody := []byte("deadbeef  myapp-linux-amd64\n")
+	sigHex := hex.EncodeToString(ed25519.Sign(priv, checksumsBody))
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/checksums.txt":
+			_, _ = w.Write(checksumsBody)
+		case "/checksums.txt.sig":
+			_, _ = io.WriteString(w, sigHex)
+		default:
+			t.Fatalf("unexpected request path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	testUpdater := newTestUpdater(t, "linux", "amd64", "/tmp/myapp", server.Client())
+
+	latest := &Release{
+		Version:         semver.Version{Major: 1, Minor: 2, Patch: 3},
+		AssetName:       "myapp-linux-amd64",
+		AssetURL:        server.URL + "/myapp-linux-amd64",
+		ChecksumsURL:    server.URL + "/checksums.txt",
+		ChecksumsSigURL: server.URL + "/checksums.txt.sig",
+	}
+
+	_, err = testUpdater.expectedChecksumForRelease(latest, true, []string{hex.EncodeToString(pub)})
+	if err == nil {
+		t.Fatal("expected malformed checksums error")
+	}
+	if !strings.Contains(err.Error(), "failed parsing checksums.txt") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// TestExpectedChecksumForReleaseRejectsDuplicateChecksums verifies duplicate file entries
+// in checksums.txt are rejected even when the signature itself is valid.
+func TestExpectedChecksumForReleaseRejectsDuplicateChecksums(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+
+	hashOne := strings.Repeat("a", 64)
+	hashTwo := strings.Repeat("b", 64)
+	checksumsBody := []byte(fmt.Sprintf("%s  myapp-linux-amd64\n%s  myapp-linux-amd64\n", hashOne, hashTwo))
+	sigHex := hex.EncodeToString(ed25519.Sign(priv, checksumsBody))
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/checksums.txt":
+			_, _ = w.Write(checksumsBody)
+		case "/checksums.txt.sig":
+			_, _ = io.WriteString(w, sigHex)
+		default:
+			t.Fatalf("unexpected request path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	testUpdater := newTestUpdater(t, "linux", "amd64", "/tmp/myapp", server.Client())
+
+	latest := &Release{
+		Version:         semver.Version{Major: 1, Minor: 2, Patch: 3},
+		AssetName:       "myapp-linux-amd64",
+		AssetURL:        server.URL + "/myapp-linux-amd64",
+		ChecksumsURL:    server.URL + "/checksums.txt",
+		ChecksumsSigURL: server.URL + "/checksums.txt.sig",
+	}
+
+	_, err = testUpdater.expectedChecksumForRelease(latest, true, []string{hex.EncodeToString(pub)})
+	if err == nil {
+		t.Fatal("expected duplicate checksums error")
+	}
+	if !strings.Contains(err.Error(), "duplicate checksum entry") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 // TestDownloadAndReplaceUsesAuthForAssetDownloads verifies asset downloads inherit GitHub token auth.
 func TestDownloadAndReplaceUsesAuthForAssetDownloads(t *testing.T) {
 	assetBody := []byte("downloaded binary")

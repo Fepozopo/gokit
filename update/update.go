@@ -321,6 +321,11 @@ func (u updater) expectedChecksumForRelease(latest *Release, verify bool, truste
 		return "", fmt.Errorf("missing checksums or signature URL for release %s", latest.Version)
 	}
 
+	trustedPubKeys, err := parseTrustedPublicKeys(trustedPubKeysHex)
+	if err != nil {
+		return "", fmt.Errorf("invalid trusted public keys: %w", err)
+	}
+
 	ckBody, err := getWithGitHubToken(u.httpClient, latest.ChecksumsURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed downloading checksums: %w", err)
@@ -331,11 +336,14 @@ func (u updater) expectedChecksumForRelease(latest *Release, verify bool, truste
 	}
 	// Verify the detached signature over the raw checksums.txt payload before
 	// trusting any hash extracted from that file.
-	if err := verifyChecksumsSignature(ckBody, string(sigBody), trustedPubKeysHex); err != nil {
+	if err := verifyChecksumsSignature(ckBody, string(sigBody), trustedPubKeys); err != nil {
 		return "", fmt.Errorf("checksums signature verification failed: %w", err)
 	}
 
-	checks := parseChecksums(ckBody)
+	checks, err := parseChecksums(ckBody)
+	if err != nil {
+		return "", fmt.Errorf("failed parsing checksums.txt: %w", err)
+	}
 	expected, ok := checks[latest.AssetName]
 	if (!ok || expected == "") && latest.AssetURL != "" {
 		// Some projects list the downloadable basename in checksums.txt even when
