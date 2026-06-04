@@ -10,8 +10,15 @@ import (
 	"time"
 )
 
-// defaultHTTPClient is used by helper download functions to ensure timeouts.
-var defaultHTTPClient = &http.Client{Timeout: 30 * time.Second}
+const defaultHTTPTimeout = 30 * time.Second
+
+// newDefaultHTTPClient constructs the HTTP client used by the default updater.
+//
+// A dedicated helper keeps the timeout policy in one place while avoiding a
+// mutable package-global client instance.
+func newDefaultHTTPClient() *http.Client {
+	return &http.Client{Timeout: defaultHTTPTimeout}
+}
 
 // doGet issues a GET request with the package's standard non-auth headers.
 func doGet(client *http.Client, url string, extraHeaders map[string]string) (*http.Response, error) {
@@ -23,12 +30,18 @@ func doGetWithGitHubToken(client *http.Client, url string, extraHeaders map[stri
 	return doGetWithAuth(client, url, extraHeaders, true)
 }
 
+// doGetWithAuth issues a GET request using the provided client and optionally
+// applies GitHub token authentication from the environment.
+//
+// When client is nil, a fresh default client is created so callers do not need
+// to manage one for simple cases, while tests and higher-level flows can still
+// inject an explicit client when they need deterministic behavior.
 func doGetWithAuth(client *http.Client, url string, extraHeaders map[string]string, includeGitHubToken bool) (*http.Response, error) {
 	if url == "" {
 		return nil, fmt.Errorf("empty url")
 	}
 	if client == nil {
-		client = defaultHTTPClient
+		client = newDefaultHTTPClient()
 	}
 
 	req, err := http.NewRequest(http.MethodGet, url, nil)

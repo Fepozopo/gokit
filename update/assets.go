@@ -2,10 +2,8 @@ package update
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 )
@@ -44,12 +42,7 @@ type assetMatch struct {
 	conflict    bool
 }
 
-var (
-	currentGOOS     = runtime.GOOS
-	currentGOARCH   = runtime.GOARCH
-	executablePath  = os.Executable
-	semverTagRegexp = regexp.MustCompile(`v?\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?`)
-)
+var semverTagRegexp = regexp.MustCompile(`v?\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?`)
 
 // releaseCandidateFromGitHubRelease converts a GitHub release into a candidate release.
 func releaseCandidateFromGitHubRelease(r githubRelease, execBases []string, goos, goarch string) (releaseCandidate, bool) {
@@ -77,8 +70,12 @@ func releaseCandidateFromGitHubRelease(r githubRelease, execBases []string, goos
 	}, true
 }
 
-// currentExecutableBaseCandidates returns the executable base names to match against release assets.
-func currentExecutableBaseCandidates(goos, goarch string) ([]string, error) {
+// currentExecutableBaseCandidates derives the executable base names that should
+// be matched against release assets for the supplied platform.
+//
+// The executablePath function is injected so callers can substitute a fake
+// executable location during tests instead of relying on mutable package state.
+func currentExecutableBaseCandidates(goos, goarch string, executablePath func() (string, error)) ([]string, error) {
 	exe, err := executablePath()
 	if err != nil {
 		return nil, fmt.Errorf("could not locate executable: %w", err)

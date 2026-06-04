@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,15 +66,20 @@ func parseChecksums(ck []byte) map[string]string {
 	return out
 }
 
-// downloadAndReplace downloads an asset to a sibling temp file and atomically replaces destPath.
-func downloadAndReplace(assetURL, destPath string, verify bool, expectedHex string) error {
-	resp, err := doGetWithGitHubToken(defaultHTTPClient, assetURL, nil)
+// downloadAndReplace downloads an asset to a sibling temp file and atomically
+// replaces destPath.
+//
+// The download uses the updater's HTTP client and optional GitHub token auth so
+// tests can supply a custom client and production code can share one client
+// across the entire update workflow.
+func (u updater) downloadAndReplace(assetURL, destPath string, verify bool, expectedHex string) error {
+	resp, err := doGetWithGitHubToken(u.httpClient, assetURL, nil)
 	if err != nil {
 		return fmt.Errorf("download failed: %w", err)
 	}
 	defer closeResponseBody(resp, assetURL)
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("download returned status %d: %s", resp.StatusCode, string(b))
 	}

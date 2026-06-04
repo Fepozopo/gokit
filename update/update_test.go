@@ -47,30 +47,17 @@ func rewriteGitHubClient(t *testing.T, server *httptest.Server) *http.Client {
 	}
 }
 
-// setUpdateTestGlobals overrides package-level globals for tests and restores them on cleanup.
-func setUpdateTestGlobals(t *testing.T, goos, goarch, exe string, client *http.Client) {
+// newTestUpdater constructs an updater instance with explicit test dependencies.
+//
+// Tests use this helper instead of mutating package globals so each test case
+// can describe its own platform, executable path, and HTTP client behavior in a
+// self-contained way.
+func newTestUpdater(t *testing.T, goos, goarch, exe string, client *http.Client) updater {
 	t.Helper()
 
-	oldGOOS := currentGOOS
-	oldGOARCH := currentGOARCH
-	oldExecutablePath := executablePath
-	oldHTTPClient := defaultHTTPClient
-
-	currentGOOS = goos
-	currentGOARCH = goarch
-	executablePath = func() (string, error) {
+	return newUpdater(goos, goarch, func() (string, error) {
 		return exe, nil
-	}
-	if client != nil {
-		defaultHTTPClient = client
-	}
-
-	t.Cleanup(func() {
-		currentGOOS = oldGOOS
-		currentGOARCH = oldGOARCH
-		executablePath = oldExecutablePath
-		defaultHTTPClient = oldHTTPClient
-	})
+	}, client)
 }
 
 // TestSelectReleaseAssetPrefersExactExecutableAndPlatform verifies exact asset matches win over other candidates.
@@ -211,9 +198,9 @@ func TestDetectLatestReleaseUsesGithubTokenAndSelectsLatestStableMatchingAsset(t
 	defer server.Close()
 
 	t.Setenv("GITHUB_TOKEN", "secret-token")
-	setUpdateTestGlobals(t, "linux", "amd64", "/tmp/myapp", rewriteGitHubClient(t, server))
+	testUpdater := newTestUpdater(t, "linux", "amd64", "/tmp/myapp", rewriteGitHubClient(t, server))
 
-	latest, found, err := detectLatestRelease("owner/repo")
+	latest, found, err := testUpdater.detectLatestRelease("owner/repo")
 	if err != nil {
 		t.Fatalf("detectLatestRelease returned error: %v", err)
 	}
@@ -257,9 +244,9 @@ func TestCheckForUpdatesReturnsNoPlatformAssetStatus(t *testing.T) {
 	}))
 	defer server.Close()
 
-	setUpdateTestGlobals(t, "linux", "amd64", "/tmp/myapp", rewriteGitHubClient(t, server))
+	testUpdater := newTestUpdater(t, "linux", "amd64", "/tmp/myapp", rewriteGitHubClient(t, server))
 
-	res, err := CheckForUpdates("v1.0.0", "owner/repo")
+	res, err := testUpdater.checkForUpdates("v1.0.0", "owner/repo")
 	if err != nil {
 		t.Fatalf("CheckForUpdates returned error: %v", err)
 	}
@@ -302,7 +289,7 @@ func TestExpectedChecksumForReleaseVerifiesSignatureAndUsesAuth(t *testing.T) {
 	defer server.Close()
 
 	t.Setenv("GITHUB_TOKEN", "secret-token")
-	setUpdateTestGlobals(t, "linux", "amd64", "/tmp/myapp", server.Client())
+	testUpdater := newTestUpdater(t, "linux", "amd64", "/tmp/myapp", server.Client())
 
 	latest := &Release{
 		Version:         semver.Version{Major: 1, Minor: 2, Patch: 3},
@@ -312,7 +299,7 @@ func TestExpectedChecksumForReleaseVerifiesSignatureAndUsesAuth(t *testing.T) {
 		ChecksumsSigURL: server.URL + "/checksums.txt.sig",
 	}
 
-	expected, err := expectedChecksumForRelease(latest, true, []string{hex.EncodeToString(pub)})
+	expected, err := testUpdater.expectedChecksumForRelease(latest, true, []string{hex.EncodeToString(pub)})
 	if err != nil {
 		t.Fatalf("expectedChecksumForRelease returned error: %v", err)
 	}
@@ -350,7 +337,7 @@ func TestExpectedChecksumForReleaseFailsInvalidSignature(t *testing.T) {
 	}))
 	defer server.Close()
 
-	setUpdateTestGlobals(t, "linux", "amd64", "/tmp/myapp", server.Client())
+	testUpdater := newTestUpdater(t, "linux", "amd64", "/tmp/myapp", server.Client())
 
 	latest := &Release{
 		Version:         semver.Version{Major: 1, Minor: 2, Patch: 3},
@@ -360,7 +347,7 @@ func TestExpectedChecksumForReleaseFailsInvalidSignature(t *testing.T) {
 		ChecksumsSigURL: server.URL + "/checksums.txt.sig",
 	}
 
-	_, err = expectedChecksumForRelease(latest, true, []string{hex.EncodeToString(goodPriv.Public().(ed25519.PublicKey))})
+	_, err = testUpdater.expectedChecksumForRelease(latest, true, []string{hex.EncodeToString(goodPriv.Public().(ed25519.PublicKey))})
 	if err == nil {
 		t.Fatal("expected signature verification to fail")
 	}
@@ -384,10 +371,10 @@ func TestDownloadAndReplaceUsesAuthForAssetDownloads(t *testing.T) {
 	defer server.Close()
 
 	t.Setenv("GITHUB_TOKEN", "secret-token")
-	setUpdateTestGlobals(t, currentGOOS, currentGOARCH, "/tmp/myapp", server.Client())
+	testUpdater := newTestUpdater(t, "linux", "amd64", "/tmp/myapp", server.Client())
 
 	dest := filepath.Join(t.TempDir(), "myapp")
-	if err := downloadAndReplace(server.URL+"/asset", dest, false, ""); err != nil {
+	if err := testUpdater.downloadAndReplace(server.URL+"/asset", dest, false, ""); err != nil {
 		t.Fatalf("downloadAndReplace returned error: %v", err)
 	}
 
@@ -425,10 +412,10 @@ func TestDownloadAndReplaceRejectsChecksumMismatch(t *testing.T) {
 	}))
 	defer server.Close()
 
-	setUpdateTestGlobals(t, currentGOOS, currentGOARCH, "/tmp/myapp", server.Client())
+	testUpdater := newTestUpdater(t, "linux", "amd64", "/tmp/myapp", server.Client())
 
 	dest := filepath.Join(t.TempDir(), "myapp")
-	err := downloadAndReplace(server.URL, dest, true, "deadbeef")
+	err := testUpdater.downloadAndReplace(server.URL, dest, true, "deadbeef")
 	if err == nil {
 		t.Fatal("expected checksum mismatch error")
 	}
