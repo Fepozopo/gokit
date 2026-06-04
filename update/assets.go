@@ -42,7 +42,29 @@ type assetMatch struct {
 	conflict    bool
 }
 
-var semverTagRegexp = regexp.MustCompile(`v?\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?`)
+var (
+	// semverTagRegexp extracts a semantic version token from GitHub tag and
+	// release-name strings.
+	semverTagRegexp = regexp.MustCompile(`v?\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?`)
+	// archiveAssetSuffixes lists archive extensions that this updater does not
+	// unpack. Only direct executable assets are installable.
+	archiveAssetSuffixes = []string{".zip", ".tar", ".tar.gz", ".tgz", ".tar.xz", ".txz", ".tar.bz2", ".tbz2", ".gz", ".xz", ".bz2"}
+	// knownOSAliases maps canonical GOOS values to the release-asset tokens that
+	// commonly represent them.
+	knownOSAliases = map[string][]string{
+		"darwin":  {"darwin", "macos", "osx", "mac"},
+		"windows": {"windows", "win32", "win64"},
+		"linux":   {"linux"},
+	}
+	// knownArchAliases maps canonical GOARCH values to the release-asset tokens
+	// that commonly represent them.
+	knownArchAliases = map[string][]string{
+		"amd64": {"amd64", "x86_64", "x64"},
+		"arm64": {"arm64", "aarch64"},
+		"386":   {"386", "x86", "i386", "i686"},
+		"arm":   {"arm", "armv6", "armv7"},
+	}
+)
 
 // releaseCandidateFromGitHubRelease converts a GitHub release into a candidate release.
 func releaseCandidateFromGitHubRelease(r githubRelease, execBases []string, goos, goarch string) (releaseCandidate, bool) {
@@ -235,8 +257,8 @@ func expectedExactAssetNames(execBases []string, goos, goarch string) map[string
 // scoreAssetMatch scores how well an asset name matches the current executable and platform.
 func scoreAssetMatch(name string, execBases []string, goos, goarch string) assetMatch {
 	baseMatched := assetMatchesAnyBase(name, execBases)
-	osMatched, osMentioned := dimensionMatch(name, osAliases(goos), allOSAliases())
-	archMatched, archMentioned := dimensionMatch(name, archAliases(goarch), allArchAliases())
+	osMatched, osMentioned := dimensionMatch(name, osAliases(goos), knownOSAliases)
+	archMatched, archMentioned := dimensionMatch(name, archAliases(goarch), knownArchAliases)
 	// An explicit reference to a different OS or architecture is treated as a hard
 	// conflict so a clearly wrong asset never beats a generic one.
 	if (osMentioned && !osMatched) || (archMentioned && !archMatched) {
@@ -299,8 +321,7 @@ func isChecksumSignatureAsset(nameLower string) bool {
 
 // isArchiveAsset reports whether an asset name is an archive that this updater does not unpack.
 func isArchiveAsset(nameLower string) bool {
-	archiveSuffixes := []string{".zip", ".tar", ".tar.gz", ".tgz", ".tar.xz", ".txz", ".tar.bz2", ".tbz2", ".gz", ".xz", ".bz2"}
-	for _, suffix := range archiveSuffixes {
+	for _, suffix := range archiveAssetSuffixes {
 		if strings.HasSuffix(nameLower, suffix) {
 			return true
 		}
@@ -325,59 +346,65 @@ func dimensionMatch(name string, currentAliases []string, allAliases map[string]
 	return false, false
 }
 
-// containsPlatformToken reports whether a name contains alias as a standalone platform token.
+// containsPlatformToken reports whether a name contains alias as a standalone
+// platform token.
+//
+// A token boundary is any non-ASCII-alphanumeric character or the start/end of
+// the string. This avoids compiling a new regular expression for every comparison.
 func containsPlatformToken(name, alias string) bool {
-	pattern := fmt.Sprintf(`(^|[^a-z0-9])%s([^a-z0-9]|$)`, regexp.QuoteMeta(strings.ToLower(alias)))
-	return regexp.MustCompile(pattern).MatchString(strings.ToLower(name))
+	lowerName := strings.ToLower(name)
+	lowerAlias := strings.ToLower(alias)
+	if lowerAlias == "" || len(lowerAlias) > len(lowerName) {
+		return false
+	}
+
+	searchFrom := 0
+	for {
+		matchOffset := strings.Index(lowerName[searchFrom:], lowerAlias)
+		if matchOffset < 0 {
+			return false
+		}
+		start := searchFrom + matchOffset
+		end := start + len(lowerAlias)
+		if isTokenBoundary(lowerName, start-1) && isTokenBoundary(lowerName, end) {
+			return true
+		}
+		searchFrom = start + 1
+	}
+}
+
+// isTokenBoundary reports whether index is outside the string or points at a
+// non-ASCII-alphanumeric byte.
+//
+// Asset names are matched against short ASCII platform aliases such as
+// "linux", "amd64", and "x86_64", so byte-wise boundary checks keep the
+// matcher simple and fast while matching the naming conventions used here.
+func isTokenBoundary(value string, index int) bool {
+	if index < 0 || index >= len(value) {
+		return true
+	}
+	return !isASCIIAlphaNumeric(value[index])
+}
+
+// isASCIIAlphaNumeric reports whether b is an ASCII letter or digit.
+func isASCIIAlphaNumeric(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9')
 }
 
 // osAliases returns the known release-asset aliases for a GOOS value.
 func osAliases(goos string) []string {
-	switch goos {
-	case "darwin":
-		return []string{"darwin", "macos", "osx", "mac"}
-	case "windows":
-		return []string{"windows", "win32", "win64"}
-	case "linux":
-		return []string{"linux"}
-	default:
-		return []string{strings.ToLower(goos)}
+	if aliases, ok := knownOSAliases[strings.ToLower(goos)]; ok {
+		return aliases
 	}
+	return []string{strings.ToLower(goos)}
 }
 
 // archAliases returns the known release-asset aliases for a GOARCH value.
 func archAliases(goarch string) []string {
-	switch goarch {
-	case "amd64":
-		return []string{"amd64", "x86_64", "x64"}
-	case "arm64":
-		return []string{"arm64", "aarch64"}
-	case "386":
-		return []string{"386", "x86", "i386", "i686"}
-	case "arm":
-		return []string{"arm", "armv6", "armv7"}
-	default:
-		return []string{strings.ToLower(goarch)}
+	if aliases, ok := knownArchAliases[strings.ToLower(goarch)]; ok {
+		return aliases
 	}
-}
-
-// allOSAliases returns the known OS aliases indexed by canonical GOOS.
-func allOSAliases() map[string][]string {
-	return map[string][]string{
-		"darwin":  osAliases("darwin"),
-		"windows": osAliases("windows"),
-		"linux":   osAliases("linux"),
-	}
-}
-
-// allArchAliases returns the known architecture aliases indexed by canonical GOARCH.
-func allArchAliases() map[string][]string {
-	return map[string][]string{
-		"amd64": archAliases("amd64"),
-		"arm64": archAliases("arm64"),
-		"386":   archAliases("386"),
-		"arm":   archAliases("arm"),
-	}
+	return []string{strings.ToLower(goarch)}
 }
 
 // uniqueStrings returns the distinct non-empty strings from values in sorted order.
