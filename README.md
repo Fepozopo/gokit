@@ -91,19 +91,19 @@ func main() {
     }
 
     if !res.Available {
-        // The Err field contains sentinel errors callers may inspect,
-        // e.g. update.ErrNoReleases, update.ErrNoAsset, update.ErrNoPlatformAsset,
-        // and update.ErrMissingChecksums
-        if res.Err != nil {
-            log.Printf("no update available: %v", res.Err)
-        } else {
+        switch res.Status {
+        case update.CheckStatusNoReleases:
+            log.Println("no usable releases found")
+        case update.CheckStatusUpToDate:
             log.Println("already up-to-date")
+        default:
+            log.Printf("update not available: %s", res.Status)
         }
         return
     }
 
     // When `verify` is true the update will verify checksums.txt with the provided trusted public keys (recommended).
-    if err := update.Update(repo, res.Latest, true, trustedPubKeysHex); err != nil {
+    if err := update.Update(res.Latest, true, trustedPubKeysHex); err != nil {
         log.Fatalf("update failed: %v", err)
     }
 }
@@ -229,9 +229,9 @@ go run scripts/derive_pub/derive_pub.go "$SEED_B64"
 
 Notes on update checking:
 
-- `CheckForUpdates` returns an `UpdateCheckResult` with fields `Available`, `Latest`, and `Err`.
-- Inspect `UpdateCheckResult.Err` for programmatic hints (sentinel errors exported from the `update` package): `ErrNoReleases`, `ErrNoAsset`, `ErrNoPlatformAsset`, `ErrMissingChecksums`, and `ErrCurrentVersionInvalid`.
-- Release asset selection is matched against the current executable name plus the current `GOOS`/`GOARCH`. If a release has assets but none match the current executable/platform, `CheckForUpdates` returns `ErrNoPlatformAsset` instead of guessing.
+- `CheckForUpdates` returns an `UpdateCheckResult` with fields `Status`, `Available`, and `Latest`.
+- Inspect `UpdateCheckResult.Status` for programmatic outcomes such as `CheckStatusNoReleases`, `CheckStatusUpToDate`, `CheckStatusUpdateAvailableNoAsset`, `CheckStatusUpdateAvailableNoPlatformAsset`, `CheckStatusUpdateAvailableMissingChecksums`, and `CheckStatusCurrentVersionInvalid`.
+- Release asset selection is matched against the current executable name plus the current `GOOS`/`GOARCH`. The selected release records `Release.AssetStatus`, and if a release has assets but none match the current executable/platform, `CheckForUpdates` returns `CheckStatusUpdateAvailableNoPlatformAsset` instead of guessing.
 - The updater currently expects direct executable assets, not archives such as `.zip` or `.tar.gz`.
 - The update code honors the `GITHUB_TOKEN` environment variable for authenticated requests, including asset downloads.
 - `GITHUB_TOKEN` is optional: if it is set, update-related GitHub requests include `Authorization: token <token>`; if it is not set, the same requests are attempted unauthenticated.

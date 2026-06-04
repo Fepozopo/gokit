@@ -2,7 +2,6 @@ package update
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -14,44 +13,63 @@ import (
 	"github.com/Fepozopo/gokit/semver"
 )
 
+// ReleaseAssetStatus describes how asset selection resolved for a release.
+type ReleaseAssetStatus string
+
+const (
+	// ReleaseAssetStatusUnknown indicates the release did not record an explicit asset-selection outcome.
+	ReleaseAssetStatusUnknown ReleaseAssetStatus = ""
+	// ReleaseAssetStatusSelected indicates a directly installable asset was selected for the current executable/platform.
+	ReleaseAssetStatusSelected ReleaseAssetStatus = "selected"
+	// ReleaseAssetStatusNoInstallableAsset indicates the release had no directly installable asset at all.
+	ReleaseAssetStatusNoInstallableAsset ReleaseAssetStatus = "no_installable_asset"
+	// ReleaseAssetStatusNoPlatformMatch indicates the release had installable assets, but none matched the current executable/platform.
+	ReleaseAssetStatusNoPlatformMatch ReleaseAssetStatus = "no_platform_match"
+)
+
 // Release is a minimal release descriptor used by detectLatestRelease.
 type Release struct {
 	Version   semver.Version
 	AssetURL  string
 	AssetName string
+	// AssetStatus reports how release asset selection resolved for the current
+	// executable and platform.
+	AssetStatus ReleaseAssetStatus
 	// ChecksumsURL points to the checksums.txt asset for the release (containing
 	// sha256 hashes for release assets). ChecksumsSigURL is the detached
 	// ed25519 signature (hex) for the checksums file.
 	ChecksumsURL    string
 	ChecksumsSigURL string
-
-	hasAnyAsset bool
 }
 
-// Sentinel errors for programmatic handling of update-check results.
-var (
-	// ErrNoReleases indicates the repository has no releases usable for update.
-	ErrNoReleases = errors.New("no releases found")
-	// ErrNoAsset indicates a release was found but no downloadable asset is present.
-	ErrNoAsset = errors.New("no downloadable asset")
-	// ErrNoPlatformAsset indicates the release has assets, but none match the current executable/runtime.
-	ErrNoPlatformAsset = errors.New("no downloadable asset for current executable/platform")
-	// ErrMissingChecksums indicates checksums or signature are missing for the release.
-	ErrMissingChecksums = errors.New("missing checksums or signature")
-	// ErrCurrentVersionInvalid indicates the current version string could not be parsed.
-	ErrCurrentVersionInvalid = errors.New("could not parse current version")
+// CheckStatus describes the outcome of an update check.
+type CheckStatus string
+
+const (
+	// CheckStatusUpToDate indicates the current version is not older than the latest usable release.
+	CheckStatusUpToDate CheckStatus = "up_to_date"
+	// CheckStatusNoReleases indicates the repository has no usable releases.
+	CheckStatusNoReleases CheckStatus = "no_releases"
+	// CheckStatusCurrentVersionInvalid indicates the current version could not be parsed, so an update is treated as available.
+	CheckStatusCurrentVersionInvalid CheckStatus = "current_version_invalid"
+	// CheckStatusUpdateAvailable indicates a newer release is available and has the required asset and checksum metadata.
+	CheckStatusUpdateAvailable CheckStatus = "update_available"
+	// CheckStatusUpdateAvailableNoAsset indicates a newer release exists but has no directly installable asset.
+	CheckStatusUpdateAvailableNoAsset CheckStatus = "update_available_no_asset"
+	// CheckStatusUpdateAvailableNoPlatformAsset indicates a newer release exists but no asset matches the current executable/platform.
+	CheckStatusUpdateAvailableNoPlatformAsset CheckStatus = "update_available_no_platform_asset"
+	// CheckStatusUpdateAvailableMissingChecksums indicates a newer release exists but is missing checksums or signature metadata.
+	CheckStatusUpdateAvailableMissingChecksums CheckStatus = "update_available_missing_checksums"
 )
 
 // UpdateCheckResult represents the outcome of checking for updates.
-// Use the Err field for programmatic inspection of special conditions
-// (e.g. missing assets or an unparsable current version).
 type UpdateCheckResult struct {
+	// Status is the primary programmatic result of the update check.
+	Status CheckStatus
+	// Available reports whether a newer release exists, even if it is not currently installable.
 	Available bool
-	Latest    *Release
-	// Err is non-nil when the check resolved to a special state that callers
-	// may want to inspect programmatically (e.g. ErrNoAsset). Note: network/API
-	// errors are still returned via the function error return value.
-	Err error
+	// Latest holds the newest usable release that was discovered, when one exists.
+	Latest *Release
 }
 
 // detectLatestRelease queries the GitHub Releases API and returns the best-matching release.
@@ -113,79 +131,89 @@ func parseReleaseVersion(tagName, releaseName string) (semver.Version, bool) {
 	return v, true
 }
 
-// CheckForUpdates checks for updates and returns a structured UpdateCheckResult.
+// CheckForUpdates checks GitHub releases for a newer version of the current executable.
 //
-// It does not return an error for normal states (such as "new release exists but missing asset"),
-// those states are represented in UpdateCheckResult.Err. Errors are reserved for
-// actual failures contacting the API or other unexpected failures.
+// Normal domain outcomes such as "already up to date", "no releases", or
+// "new release exists but is missing an installable asset" are reported via the
+// returned UpdateCheckResult.Status. The returned error is reserved for
+// operational failures such as HTTP, decoding, or other unexpected problems that
+// prevented the check from completing.
 func CheckForUpdates(currentVersion, repo string) (UpdateCheckResult, error) {
 	latest, found, err := detectLatestRelease(repo)
 	if err != nil {
 		return UpdateCheckResult{}, fmt.Errorf("update check failed: %w", err)
 	}
 	if !found || latest == nil {
-		return UpdateCheckResult{
-			Available: false,
-			Latest:    nil,
-			Err:       ErrNoReleases,
-		}, nil
+		return newUpdateCheckResult(CheckStatusNoReleases, nil), nil
 	}
 
 	currentSemVer, parseErr := semver.Parse(currentVersion)
 	if parseErr != nil {
 		slog.Warn("could not parse current version; treating as update available", "version", currentVersion, "error", parseErr)
-		return UpdateCheckResult{
-			Available: true,
-			Latest:    latest,
-			Err:       ErrCurrentVersionInvalid,
-		}, nil
+		return newUpdateCheckResult(CheckStatusCurrentVersionInvalid, latest), nil
 	}
 
 	if !latest.Version.GT(currentSemVer) {
-		return UpdateCheckResult{
-			Available: false,
-			Latest:    latest,
-			Err:       nil,
-		}, nil
+		return newUpdateCheckResult(CheckStatusUpToDate, latest), nil
 	}
 
 	if latest.AssetURL == "" {
-		errState := ErrNoAsset
-		if latest.hasAnyAsset {
-			errState = ErrNoPlatformAsset
+		switch latest.AssetStatus {
+		case ReleaseAssetStatusNoPlatformMatch:
+			return newUpdateCheckResult(CheckStatusUpdateAvailableNoPlatformAsset, latest), nil
+		default:
+			return newUpdateCheckResult(CheckStatusUpdateAvailableNoAsset, latest), nil
 		}
-		return UpdateCheckResult{
-			Available: true,
-			Latest:    latest,
-			Err:       errState,
-		}, nil
 	}
 	if latest.ChecksumsURL == "" || latest.ChecksumsSigURL == "" {
-		return UpdateCheckResult{
-			Available: true,
-			Latest:    latest,
-			Err:       ErrMissingChecksums,
-		}, nil
+		return newUpdateCheckResult(CheckStatusUpdateAvailableMissingChecksums, latest), nil
 	}
 
+	return newUpdateCheckResult(CheckStatusUpdateAvailable, latest), nil
+}
+
+// newUpdateCheckResult builds the canonical UpdateCheckResult for a completed
+// check so all call sites derive the Available flag from Status consistently.
+func newUpdateCheckResult(status CheckStatus, latest *Release) UpdateCheckResult {
 	return UpdateCheckResult{
-		Available: true,
+		Status:    status,
+		Available: statusIndicatesAvailable(status),
 		Latest:    latest,
-		Err:       nil,
-	}, nil
+	}
+}
+
+// statusIndicatesAvailable reports whether a CheckStatus means a newer release
+// exists, even if that release cannot yet be installed automatically.
+func statusIndicatesAvailable(status CheckStatus) bool {
+	switch status {
+	case CheckStatusCurrentVersionInvalid,
+		CheckStatusUpdateAvailable,
+		CheckStatusUpdateAvailableNoAsset,
+		CheckStatusUpdateAvailableNoPlatformAsset,
+		CheckStatusUpdateAvailableMissingChecksums:
+		return true
+	default:
+		return false
+	}
 }
 
 // Update downloads, verifies, installs, and restarts into the given latest release.
-func Update(repo string, latest *Release, verify bool, trustedPubKeysHex []string) error {
-	_ = repo
+//
+// The caller is expected to pass the Release returned by CheckForUpdates. When
+// the release metadata does not describe an installable asset for the current
+// executable or platform, Update returns a descriptive error instead of
+// attempting any download or replacement work.
+func Update(latest *Release, verify bool, trustedPubKeysHex []string) error {
 	if latest == nil {
 		return fmt.Errorf("no release information provided")
 	}
 	if latest.AssetURL == "" {
-		if latest.hasAnyAsset {
-			return ErrNoPlatformAsset
+		switch latest.AssetStatus {
+		case ReleaseAssetStatusNoPlatformMatch:
+			return fmt.Errorf("latest release has no asset matching the current executable/platform")
+		default:
+			return fmt.Errorf("latest release has no directly installable asset")
 		}
-		return ErrNoAsset
 	}
 	if verify && len(trustedPubKeysHex) == 0 {
 		return fmt.Errorf("verification requested but no trusted public keys were provided")

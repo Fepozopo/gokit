@@ -82,12 +82,12 @@ func TestSelectReleaseAssetPrefersExactExecutableAndPlatform(t *testing.T) {
 		{Name: "checksums.txt", BrowserDownloadURL: "https://example.invalid/checksums.txt"},
 	}
 
-	asset, hasAnyAsset := selectReleaseAsset(assets, []string{"myapp"}, "linux", "amd64")
-	if !hasAnyAsset {
-		t.Fatalf("expected installable assets to be detected")
+	selection := selectReleaseAsset(assets, []string{"myapp"}, "linux", "amd64")
+	if selection.status != ReleaseAssetStatusSelected {
+		t.Fatalf("asset status = %q, want %q", selection.status, ReleaseAssetStatusSelected)
 	}
-	if asset.Name != "myapp-linux-amd64" {
-		t.Fatalf("selected asset = %q, want %q", asset.Name, "myapp-linux-amd64")
+	if selection.asset.Name != "myapp-linux-amd64" {
+		t.Fatalf("selected asset = %q, want %q", selection.asset.Name, "myapp-linux-amd64")
 	}
 }
 
@@ -97,12 +97,12 @@ func TestSelectReleaseAssetDoesNotGuessDifferentExecutable(t *testing.T) {
 		{Name: "worker-linux-amd64", BrowserDownloadURL: "https://example.invalid/worker-linux-amd64"},
 	}
 
-	asset, hasAnyAsset := selectReleaseAsset(assets, []string{"myapp"}, "linux", "amd64")
-	if !hasAnyAsset {
-		t.Fatalf("expected installable assets to be detected")
+	selection := selectReleaseAsset(assets, []string{"myapp"}, "linux", "amd64")
+	if selection.status != ReleaseAssetStatusNoPlatformMatch {
+		t.Fatalf("asset status = %q, want %q", selection.status, ReleaseAssetStatusNoPlatformMatch)
 	}
-	if asset.Name != "" || asset.BrowserDownloadURL != "" {
-		t.Fatalf("expected no asset to be selected, got %#v", asset)
+	if selection.asset.Name != "" || selection.asset.BrowserDownloadURL != "" {
+		t.Fatalf("expected no asset to be selected, got %#v", selection.asset)
 	}
 }
 
@@ -232,10 +232,13 @@ func TestDetectLatestReleaseUsesGithubTokenAndSelectsLatestStableMatchingAsset(t
 	if latest.AssetName != "myapp-linux-amd64" {
 		t.Fatalf("asset name = %q, want %q", latest.AssetName, "myapp-linux-amd64")
 	}
+	if latest.AssetStatus != ReleaseAssetStatusSelected {
+		t.Fatalf("asset status = %q, want %q", latest.AssetStatus, ReleaseAssetStatusSelected)
+	}
 }
 
-// TestCheckForUpdatesReturnsErrNoPlatformAsset verifies platform mismatches are surfaced explicitly.
-func TestCheckForUpdatesReturnsErrNoPlatformAsset(t *testing.T) {
+// TestCheckForUpdatesReturnsNoPlatformAssetStatus verifies platform mismatches are surfaced explicitly.
+func TestCheckForUpdatesReturnsNoPlatformAssetStatus(t *testing.T) {
 	releasesJSON := `[
 				{
 					"tag_name": "v1.2.0",
@@ -263,8 +266,8 @@ func TestCheckForUpdatesReturnsErrNoPlatformAsset(t *testing.T) {
 	if !res.Available {
 		t.Fatal("expected update to be available")
 	}
-	if res.Err != ErrNoPlatformAsset {
-		t.Fatalf("result err = %v, want %v", res.Err, ErrNoPlatformAsset)
+	if res.Status != CheckStatusUpdateAvailableNoPlatformAsset {
+		t.Fatalf("result status = %q, want %q", res.Status, CheckStatusUpdateAvailableNoPlatformAsset)
 	}
 }
 
@@ -394,6 +397,23 @@ func TestDownloadAndReplaceUsesAuthForAssetDownloads(t *testing.T) {
 	}
 	if string(got) != string(assetBody) {
 		t.Fatalf("replaced file content = %q, want %q", string(got), string(assetBody))
+	}
+}
+
+// TestUpdateRejectsReleaseWithoutPlatformMatch verifies Update fails fast when the release metadata
+// already indicates that no asset matches the current executable/platform.
+func TestUpdateRejectsReleaseWithoutPlatformMatch(t *testing.T) {
+	latest := &Release{
+		Version:     semver.Version{Major: 1, Minor: 2, Patch: 3},
+		AssetStatus: ReleaseAssetStatusNoPlatformMatch,
+	}
+
+	err := Update(latest, false, nil)
+	if err == nil {
+		t.Fatal("expected Update to reject a release without a matching asset")
+	}
+	if !strings.Contains(err.Error(), "no asset matching the current executable/platform") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

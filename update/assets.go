@@ -30,6 +30,12 @@ type releaseCandidate struct {
 	release Release
 }
 
+// releaseAssetSelection records the selected asset, if any, along with the reason selection resolved the way it did.
+type releaseAssetSelection struct {
+	asset  githubReleaseAsset
+	status ReleaseAssetStatus
+}
+
 // assetMatch describes how well an asset name matches the current executable and platform.
 type assetMatch struct {
 	score       int
@@ -56,17 +62,17 @@ func releaseCandidateFromGitHubRelease(r githubRelease, execBases []string, goos
 		return releaseCandidate{}, false
 	}
 
-	selectedAsset, hasAnyAsset := selectReleaseAsset(r.Assets, execBases, goos, goarch)
+	selection := selectReleaseAsset(r.Assets, execBases, goos, goarch)
 	checksumsURL, checksumsSigURL := checksumAssetURLs(r.Assets)
 
 	return releaseCandidate{
 		release: Release{
 			Version:         v,
-			AssetURL:        selectedAsset.BrowserDownloadURL,
-			AssetName:       selectedAsset.Name,
+			AssetURL:        selection.asset.BrowserDownloadURL,
+			AssetName:       selection.asset.Name,
+			AssetStatus:     selection.status,
 			ChecksumsURL:    checksumsURL,
 			ChecksumsSigURL: checksumsSigURL,
-			hasAnyAsset:     hasAnyAsset,
 		},
 	}, true
 }
@@ -129,31 +135,31 @@ func checksumAssetURLs(assets []githubReleaseAsset) (checksumsURL, checksumsSigU
 }
 
 // selectReleaseAsset chooses the best installable asset for the current executable and platform.
-func selectReleaseAsset(assets []githubReleaseAsset, execBases []string, goos, goarch string) (githubReleaseAsset, bool) {
+func selectReleaseAsset(assets []githubReleaseAsset, execBases []string, goos, goarch string) releaseAssetSelection {
 	candidates := filterInstallableAssets(assets)
 	if len(candidates) == 0 {
-		return githubReleaseAsset{}, false
+		return releaseAssetSelection{status: ReleaseAssetStatusNoInstallableAsset}
 	}
 
 	// Prefer an exact "<binary>-<os>-<arch>" style name before applying heuristics.
 	if exact, ok := selectExactAsset(candidates, execBases, goos, goarch); ok {
-		return exact, true
+		return releaseAssetSelection{asset: exact, status: ReleaseAssetStatusSelected}
 	}
 
 	considered := filterByBaseMatch(candidates, execBases)
 	if len(considered) == 0 {
-		return githubReleaseAsset{}, true
+		return releaseAssetSelection{status: ReleaseAssetStatusNoPlatformMatch}
 	}
 
 	if len(considered) == 1 {
 		match := scoreAssetMatch(considered[0].Name, execBases, goos, goarch)
 		if match.conflict {
-			return githubReleaseAsset{}, true
+			return releaseAssetSelection{status: ReleaseAssetStatusNoPlatformMatch}
 		}
 		if match.score > 0 || match.generic || match.baseMatched {
-			return considered[0], true
+			return releaseAssetSelection{asset: considered[0], status: ReleaseAssetStatusSelected}
 		}
-		return githubReleaseAsset{}, true
+		return releaseAssetSelection{status: ReleaseAssetStatusNoPlatformMatch}
 	}
 
 	bestScore := -1
@@ -176,9 +182,9 @@ func selectReleaseAsset(assets []githubReleaseAsset, execBases []string, goos, g
 	}
 	// If multiple assets tie for the best heuristic match, refuse to guess.
 	if bestIndex >= 0 && !ambiguous {
-		return considered[bestIndex], true
+		return releaseAssetSelection{asset: considered[bestIndex], status: ReleaseAssetStatusSelected}
 	}
-	return githubReleaseAsset{}, true
+	return releaseAssetSelection{status: ReleaseAssetStatusNoPlatformMatch}
 }
 
 // filterInstallableAssets removes release assets that this updater cannot install directly.
