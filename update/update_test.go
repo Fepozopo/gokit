@@ -106,6 +106,73 @@ func TestSelectReleaseAssetDoesNotGuessDifferentExecutable(t *testing.T) {
 	}
 }
 
+// TestDoGetPreservesCallerAuthorizationHeaderWithoutGitHubToken verifies generic requests keep caller auth when no env token is set.
+func TestDoGetPreservesCallerAuthorizationHeaderWithoutGitHubToken(t *testing.T) {
+	var authHeader string
+	var userAgent string
+	var customHeader string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeader = r.Header.Get("Authorization")
+		userAgent = r.Header.Get("User-Agent")
+		customHeader = r.Header.Get("X-Custom")
+		_, _ = io.WriteString(w, "ok")
+	}))
+	defer server.Close()
+
+	t.Setenv("GITHUB_TOKEN", "")
+
+	resp, err := doGet(server.Client(), server.URL, map[string]string{
+		"Authorization": "Bearer caller-token",
+		"X-Custom":      "present",
+	})
+	if err != nil {
+		t.Fatalf("doGet returned error: %v", err)
+	}
+	defer closeResponseBody(resp, server.URL)
+
+	if authHeader != "Bearer caller-token" {
+		t.Fatalf("authorization header = %q, want %q", authHeader, "Bearer caller-token")
+	}
+	if userAgent != "gokit-update-checker" {
+		t.Fatalf("user-agent = %q, want %q", userAgent, "gokit-update-checker")
+	}
+	if customHeader != "present" {
+		t.Fatalf("x-custom header = %q, want %q", customHeader, "present")
+	}
+}
+
+// TestDoGetWithGitHubTokenOverridesCallerAuthorizationHeader verifies env token auth wins for authenticated update requests.
+func TestDoGetWithGitHubTokenOverridesCallerAuthorizationHeader(t *testing.T) {
+	var authHeader string
+	var customHeader string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeader = r.Header.Get("Authorization")
+		customHeader = r.Header.Get("X-Custom")
+		_, _ = io.WriteString(w, "ok")
+	}))
+	defer server.Close()
+
+	t.Setenv("GITHUB_TOKEN", "secret-token")
+
+	resp, err := doGetWithGitHubToken(server.Client(), server.URL, map[string]string{
+		"Authorization": "Bearer caller-token",
+		"X-Custom":      "present",
+	})
+	if err != nil {
+		t.Fatalf("doGetWithGitHubToken returned error: %v", err)
+	}
+	defer closeResponseBody(resp, server.URL)
+
+	if authHeader != "token secret-token" {
+		t.Fatalf("authorization header = %q, want %q", authHeader, "token secret-token")
+	}
+	if customHeader != "present" {
+		t.Fatalf("x-custom header = %q, want %q", customHeader, "present")
+	}
+}
+
 // TestDetectLatestReleaseUsesGithubTokenAndSelectsLatestStableMatchingAsset verifies auth and release selection behavior.
 func TestDetectLatestReleaseUsesGithubTokenAndSelectsLatestStableMatchingAsset(t *testing.T) {
 	var authHeader string

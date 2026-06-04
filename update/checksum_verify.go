@@ -67,7 +67,7 @@ func parseChecksums(ck []byte) map[string]string {
 
 // downloadAndReplace downloads an asset to a sibling temp file and atomically replaces destPath.
 func downloadAndReplace(assetURL, destPath string, verify bool, expectedHex string) error {
-	resp, err := doGet(defaultHTTPClient, assetURL, nil)
+	resp, err := doGetWithGitHubToken(defaultHTTPClient, assetURL, nil)
 	if err != nil {
 		return fmt.Errorf("download failed: %w", err)
 	}

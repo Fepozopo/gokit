@@ -67,6 +67,8 @@ func main() {
 
 ### Check for updates and apply them (basic pattern)
 
+`GITHUB_TOKEN` is optional. When it is set, the `update` package sends it on GitHub release/checksum/asset requests to increase rate limits and support private releases. When it is not set, those requests are still made, but without an `Authorization` header.
+
 ```go
 package main
 
@@ -231,7 +233,9 @@ Notes on update checking:
 - Inspect `UpdateCheckResult.Err` for programmatic hints (sentinel errors exported from the `update` package): `ErrNoReleases`, `ErrNoAsset`, `ErrNoPlatformAsset`, `ErrMissingChecksums`, and `ErrCurrentVersionInvalid`.
 - Release asset selection is matched against the current executable name plus the current `GOOS`/`GOARCH`. If a release has assets but none match the current executable/platform, `CheckForUpdates` returns `ErrNoPlatformAsset` instead of guessing.
 - The updater currently expects direct executable assets, not archives such as `.zip` or `.tar.gz`.
-- The update code honors the `GITHUB_TOKEN` environment variable for authenticated requests, including asset downloads. Export a token to increase rate limits or to access private releases:
+- The update code honors the `GITHUB_TOKEN` environment variable for authenticated requests, including asset downloads.
+- `GITHUB_TOKEN` is optional: if it is set, update-related GitHub requests include `Authorization: token <token>`; if it is not set, the same requests are attempted unauthenticated.
+- Export a token to increase rate limits or to access private releases:
 
 ```bash
 export GITHUB_TOKEN="ghp_..."

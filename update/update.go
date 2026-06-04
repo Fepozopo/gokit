@@ -66,7 +66,7 @@ func detectLatestRelease(repo string) (*Release, bool, error) {
 	}
 
 	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/releases", repo)
-	body, err := getWithHeaders(defaultHTTPClient, apiURL, map[string]string{
+	body, err := getWithGitHubToken(defaultHTTPClient, apiURL, map[string]string{
 		"Accept": "application/vnd.github.v3+json",
 	})
 	if err != nil {
@@ -216,11 +216,11 @@ func expectedChecksumForRelease(latest *Release, verify bool, trustedPubKeysHex 
 		return "", fmt.Errorf("missing checksums or signature URL for release %s", latest.Version)
 	}
 
-	ckBody, err := getWithHeaders(defaultHTTPClient, latest.ChecksumsURL, nil)
+	ckBody, err := getWithGitHubToken(defaultHTTPClient, latest.ChecksumsURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed downloading checksums: %w", err)
 	}
-	sigBody, err := getWithHeaders(defaultHTTPClient, latest.ChecksumsSigURL, nil)
+	sigBody, err := getWithGitHubToken(defaultHTTPClient, latest.ChecksumsSigURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed downloading checksums signature: %w", err)
 	}
