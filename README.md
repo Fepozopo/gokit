@@ -29,7 +29,7 @@ Requires Go 1.21+ (see `go.mod`).
 - [semver/](./semver/) — parse and compare semantic versions.
 - [update/](./update/) — helpers to detect releases on GitHub, verify signed `checksums.txt`, download artifacts, and atomically replace the running executable.
 - [osutil/](./osutil/) — small OS-related utilities:
-  - [osutil/select.go](./osutil/select.go) — cross-platform selection helpers (`OpenFileSelection`, `OpenFilesSelection`, `OpenDirSelection`, `OpenDirsSelection`).
+  - selection helpers (`OpenFileSelection`, `OpenFilesSelection`, `OpenDirSelection`, `OpenDirsSelection`) implemented across the platform-specific `osutil/select_*.go` files.
   - [osutil/clipboard.go](./osutil/clipboard.go) — cross-platform clipboard helper (`CopyTextToClipboard`).
   - [osutil/replace.go](./osutil/replace.go) — atomic file replacement helpers (`AtomicReplace`, `CopyFile`, `IsCrossDeviceErr`).
 - [env/](./env/) — environment helpers (`LoadDotEnv`, `LoadDotEnvWithOptions`).
@@ -150,12 +150,13 @@ func main() {
 ## File/Directory selection utility
 
 A small, dependency-free helper that opens the system's native file picker and
-returns the selected path(s). The implementation is in `gokit/osutil/select.go`.
+returns the selected path(s). The implementation is split across the
+platform-specific `gokit/osutil/select_*.go` files.
 
 Behavior by platform:
 
-- macOS: uses `osascript` (AppleScript) to show `choose file` dialogs.
-- Windows: uses PowerShell (`System.Windows.Forms.OpenFileDialog`).
+- macOS: uses `osascript` (AppleScript) to show `choose file` / `choose folder` dialogs.
+- Windows: uses the native Windows Common Item Dialog via COM (`IFileOpenDialog`), without spawning PowerShell.
 - Linux: tries `zenity`, then `kdialog`.
   If neither is available the helpers return `osutil.ErrNoGUISelection`.
 
@@ -172,17 +173,16 @@ Exported helpers:
 
 Notes / requirements:
 
-- The helper intentionally has no third-party dependencies and shells out to
-  platform tools. Ensure those backends are available for GUI dialogs:
-  - macOS: `osascript` (standard)
-  - Windows: `powershell`
-  - Linux: `zenity` or `kdialog`
-- If no GUI helper is present on Linux the functions return `osutil.ErrNoGUISelection`, which callers can detect.
+- The helper intentionally has no third-party Go dependencies.
+  - macOS uses `osascript` (standard).
+  - Windows uses native COM APIs directly and does not require `powershell`.
+  - Linux uses `zenity` or `kdialog`.
+- If no GUI helper is present on Linux, or if the current platform has no built-in selector implementation, the functions return `osutil.ErrNoGUISelection`, which callers can detect.
 - Cancelling a dialog returns an empty result and a nil error (so callers can
   treat cancellation separately from real errors).
 - On macOS the AppleScript is passed via `osascript -e`. If you encounter issues
-  with very long/complex scripts the implementation can be adjusted to write the
-  AppleScript to a temporary file and call `osascript /tmp/script`.
+  with very long or complex scripts, the implementation could be adjusted to write the
+  AppleScript to a temporary file and call `osascript /tmp/script` instead.
 
 To run the included example:
 
