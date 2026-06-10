@@ -1,6 +1,31 @@
+//go:build linux
+
 package osutil
 
 import "fmt"
+
+// OpenFileSelection shows the Linux native file selection dialog and returns
+// the selected file path.
+func OpenFileSelection(title string) (string, error) {
+	return selectFileLinux(title)
+}
+
+// OpenFilesSelection allows selecting multiple files using a Linux native
+// dialog. If you only need a single file, call OpenFileSelection instead.
+func OpenFilesSelection(title string) ([]string, error) {
+	return selectFilesLinux(title)
+}
+
+// OpenDirSelection shows the Linux native directory selection dialog.
+func OpenDirSelection(title string) (string, error) {
+	return selectDirLinux(title)
+}
+
+// OpenDirsSelection shows the Linux native multiple-directory selection
+// dialog. It returns nil if the dialog is cancelled.
+func OpenDirsSelection(title string) ([]string, error) {
+	return selectDirsLinux(title)
+}
 
 // selectFileLinux opens a native Linux file picker and returns one file path.
 func selectFileLinux(title string) (string, error) {
@@ -96,4 +121,16 @@ func selectDirsLinux(title string) ([]string, error) {
 	default:
 		return nil, ErrNoGUISelection
 	}
+}
+
+// linuxSelectionBackend reports the preferred Linux dialog helper available in PATH.
+func linuxSelectionBackend() string {
+	// Prefer zenity first, then fall back to kdialog.
+	if hasCommand("zenity") {
+		return "zenity"
+	}
+	if hasCommand("kdialog") {
+		return "kdialog"
+	}
+	return ""
 }

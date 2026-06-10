@@ -3,8 +3,11 @@ package osutil
 import (
 	"fmt"
 	"os/exec"
+	"runtime"
 	"strings"
 )
+
+var currentGOOS = runtime.GOOS
 
 // CopyTextToClipboard detects the OS and executes the native clipboard command.
 func CopyTextToClipboard(text string) error {
