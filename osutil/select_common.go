@@ -27,11 +27,6 @@ func escapeAppleScriptString(s string) string {
 	return s
 }
 
-// escapePowerShellSingleQuotes escapes s for embedding in a single-quoted PowerShell string.
-func escapePowerShellSingleQuotes(s string) string {
-	return strings.ReplaceAll(s, `'`, `''`)
-}
-
 // hasCommand reports whether name can be found in PATH.
 func hasCommand(name string) bool {
 	_, err := lookPathExec(name)

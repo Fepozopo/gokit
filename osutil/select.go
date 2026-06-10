@@ -12,8 +12,8 @@ var ErrNoGUISelection = errors.New("no GUI selection helper available")
 var currentGOOS = runtime.GOOS
 
 // OpenFileSelection shows the system's native file selection dialog and
-// returns the selected file path. It uses no external Go dependencies;
-// instead it shells out to platform-provided helpers where possible.
+// returns the selected file path. It uses no external Go dependencies,
+// relying on platform-native helpers or APIs where available.
 func OpenFileSelection(title string) (string, error) {
 	switch currentGOOS {
 	case "darwin":
