@@ -484,8 +484,14 @@ func prepareDialogFilters(filters []fileDialogFilter) (*preparedDialogFilters, e
 			return nil, fmt.Errorf("dialog filter pattern cannot be empty")
 		}
 
-		name := syscall.StringToUTF16(filter.DisplayName)
-		pattern := syscall.StringToUTF16(filter.Pattern)
+		name, err := syscall.UTF16FromString(filter.DisplayName)
+		if err != nil {
+			return nil, fmt.Errorf("invalid dialog filter display name %q: %w", filter.DisplayName, err)
+		}
+		pattern, err := syscall.UTF16FromString(filter.Pattern)
+		if err != nil {
+			return nil, fmt.Errorf("invalid dialog filter pattern %q: %w", filter.Pattern, err)
+		}
 		prepared.Names = append(prepared.Names, name)
 		prepared.Patterns = append(prepared.Patterns, pattern)
 		prepared.Specs = append(prepared.Specs, commonDialogFilterSpec{
